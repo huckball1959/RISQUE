@@ -1,0 +1,452 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>RISQUE - First Deployment</title>
+  <style>
+    .ui-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 1920px;
+      height: 1080px;
+      z-index: 2;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 1s ease;
+    }
+    .ui-overlay.fade-out {
+      opacity: 0;
+    }
+    .text {
+      position: absolute;
+      color: #000000;
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: bold;
+      box-sizing: border-box;
+      text-align: center;
+      pointer-events: none;
+    }
+    .title {
+      font-size: 40px;
+      left: 1280px;
+      top: 364px;
+      width: 480px;
+      height: 160px;
+    }
+    .bank {
+      font-size: 30px;
+    }
+    .player-name {
+      font-size: 40px;
+      left: 1152px;
+      top: 524px;
+      width: 704px;
+      height: 64px;
+    }
+    .button {
+      position: absolute;
+      background: #dcdcdc;
+      border: 2px solid #000;
+      border-radius: 4px;
+      color: #000;
+      font-size: 16px;
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: bold;
+      cursor: pointer;
+      box-sizing: border-box;
+      transition: background 0.2s, transform 0.1s;
+      pointer-events: all;
+    }
+    .button:hover:not(:disabled) {
+      background: #c0c0c0;
+    }
+    .button:active:not(:disabled) {
+      transform: scale(0.95);
+    }
+    .button:disabled {
+      background: #e0e0e0;
+      border-color: #999;
+      color: #999;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div class="canvas-wrapper" id="canvas">
+    <img id="stage-image" src="assets/images/stage.png" alt="Stage" class="stage-image">
+    <svg class="svg-overlay" viewBox="0 0 1920 1080" role="region" aria-label="Territory map"></svg>
+    <div class="ui-overlay" id="ui-overlay">
+      <div id="title" class="text title">First Deployment</div>
+      <div id="player-name" class="text player-name"></div>
+      <div id="bank-label" class="text bank" style="left: 1344px; top: 672px; width: 200px; height: 64px;">Bank</div>
+      <div id="bank-number" class="text bank" style="left: 1536px; top: 672px; width: 128px; height: 64px;">000</div>
+      <button id="view-troops" class="button" style="left: 1152px; top: 768px; width: 704px; height: 64px;" aria-label="View troops placed">View Troops Placed</button>
+      <button id="reset" class="button" style="left: 1152px; top: 864px; width: 704px; height: 64px;" aria-label="Reset troop deployment">Reset</button>
+      <button id="confirm" class="button" style="left: 1152px; top: 960px; width: 704px; height: 64px;" aria-label="Confirm troop deployment">Confirm</button>
+      <div id="error" class="error" role="alert"></div>
+    </div>
+  </div>
+  <script src="core.js"></script>
+  <script type="text/javascript">
+    try {
+      function logToConsole(message) {
+        const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+        const logEntry = `[${timestamp}] [Deploy1] ${message}`;
+        console.log(logEntry);
+        const logs = JSON.parse(localStorage.getItem("gameLogs") || "[]");
+        logs.push(logEntry);
+        localStorage.setItem("gameLogs", JSON.stringify(logs));
+      }
+
+      let gameState = {};
+      let deploymentOrder = [];
+      let currentPlayerIndex = 0;
+      const initialBankValues = {};
+      let deploymentInitialized = false;
+      let selectedTerritory = null;
+      let viewTroopsActive = false;
+      let keyboardBuffer = '';
+      let negativeInput = false;
+      let deployedTroops = {};
+
+      const bankNumber = document.getElementById('bank-number');
+      const confirmButton = document.getElementById('confirm');
+      const resetButton = document.getElementById('reset');
+      const viewTroopsButton = document.getElementById('view-troops');
+      const playerNameText = document.getElementById('player-name');
+      const errorDiv = document.getElementById('error');
+      const uiOverlay = document.getElementById('ui-overlay');
+
+      function initializeDeployment() {
+        if (deploymentInitialized) {
+          logToConsole('Deployment already initialized or no players');
+          return;
+        }
+        window.gameUtils.loadGameState((loadedGameState) => {
+          if (!loadedGameState) {
+            logToConsole('Invalid game state');
+            errorDiv.textContent = 'Invalid game state. Redirecting to login.';
+            setTimeout(() => { window.location.href = 'risque.html'; }, 1000);
+            return;
+          }
+          gameState = loadedGameState;
+          const invalidPlayer = gameState.players.find(p => !p.territories || p.territories.length === 0);
+          if (invalidPlayer) {
+            logToConsole(`Player has no territories: ${invalidPlayer.name}`);
+            errorDiv.textContent = 'Invalid game state: Player has no territories. Redirecting to login.';
+            setTimeout(() => { window.location.href = 'risque.html'; }, 1000);
+            return;
+          }
+          if (!gameState.currentPlayer || !gameState.turnOrder.includes(gameState.currentPlayer)) {
+            logToConsole(`Invalid currentPlayer or turnOrder: ${gameState.currentPlayer}`);
+            errorDiv.textContent = 'Invalid game state: No current player. Redirecting to login.';
+            setTimeout(() => { window.location.href = 'risque.html'; }, 1000);
+            return;
+          }
+          deploymentOrder = [...gameState.turnOrder];
+          currentPlayerIndex = deploymentOrder.indexOf(gameState.currentPlayer);
+          gameState.phase = 'deploy';
+          gameState.players.forEach(player => {
+            initialBankValues[player.name] = player.bankValue || 0;
+            deployedTroops[player.name] = {};
+            player.territories.forEach(t => {
+              deployedTroops[player.name][t.name] = t.troops - 1;
+            });
+          });
+          deploymentInitialized = true;
+          logToConsole(`Deployment initialized: currentPlayer=${gameState.currentPlayer}, currentPlayerIndex=${currentPlayerIndex}`);
+          window.gameUtils.renderAll(gameState, null, deployedTroops[gameState.currentPlayer]);
+          updatePlayerNameDisplay();
+          updateBankDisplay();
+          uiOverlay.classList.add('visible');
+        });
+      }
+
+      function updateBankDisplay() {
+        const player = gameState.players?.find(p => p.name === gameState.currentPlayer);
+        bankNumber.textContent = player ? player.bankValue.toString().padStart(3, '0') : '000';
+        logToConsole(`Updated bank display: ${bankNumber.textContent}`);
+      }
+
+      function updatePlayerNameDisplay() {
+        const player = gameState.players?.find(p => p.name === gameState.currentPlayer);
+        playerNameText.textContent = player ? player.name : 'No Player';
+        playerNameText.style.color = player ? window.gameUtils.colorMap[player.color] : '#000000';
+        logToConsole(`Updated player name: ${playerNameText.textContent}`);
+      }
+
+      window.handleTerritoryClick = function(label, owner, troops) {
+        const player = gameState.players?.find(p => p.name === gameState.currentPlayer);
+        if (!player) {
+          window.gameUtils.showError('No current player.');
+          return;
+        }
+        if (owner !== gameState.currentPlayer) {
+          window.gameUtils.showError('You do not own this territory.');
+          selectedTerritory = null;
+          window.gameUtils.renderAll(gameState, null, deployedTroops[gameState.currentPlayer]);
+          return;
+        }
+        if (selectedTerritory === label) {
+          selectedTerritory = null;
+          keyboardBuffer = '';
+          negativeInput = false;
+        } else {
+          selectedTerritory = label;
+          keyboardBuffer = '';
+          negativeInput = false;
+        }
+        window.gameUtils.showError('');
+        window.selectedTerritory = selectedTerritory;
+        window.gameUtils.renderAll(gameState, selectedTerritory, deployedTroops[gameState.currentPlayer]);
+      };
+
+      if (viewTroopsButton) {
+        viewTroopsButton.addEventListener('click', () => {
+          viewTroopsActive = !viewTroopsActive;
+          window.viewTroopsActive = viewTroopsActive;
+          logToConsole(`View troops toggled: ${viewTroopsActive}`);
+          window.gameUtils.renderAll(gameState, selectedTerritory, deployedTroops[gameState.currentPlayer]);
+        });
+      }
+
+      if (resetButton) {
+        resetButton.addEventListener('click', () => {
+          const player = gameState.players?.find(p => p.name === gameState.currentPlayer);
+          if (!player) {
+            window.gameUtils.showError('No current player.');
+            return;
+          }
+          player.bankValue = initialBankValues[player.name] || 0;
+          player.territories.forEach(t => {
+            t.troops = 1;
+            deployedTroops[player.name][t.name] = 0;
+          });
+          player.troopsTotal = player.territories.length;
+          selectedTerritory = null;
+          viewTroopsActive = false;
+          keyboardBuffer = '';
+          negativeInput = false;
+          window.selectedTerritory = null;
+          window.viewTroopsActive = false;
+          window.gameUtils.showError('');
+          window.gameUtils.renderAll(gameState, null, deployedTroops[gameState.currentPlayer]);
+          updateBankDisplay();
+          try {
+            localStorage.setItem('gameState', JSON.stringify(gameState));
+            logToConsole('Game state saved');
+          } catch (e) {
+            logToConsole(`Failed to save game state: ${e.message}`);
+            window.gameUtils.showError('Failed to save game state.');
+          }
+        });
+      }
+
+      if (confirmButton) {
+        confirmButton.addEventListener('click', () => {
+          const player = gameState.players?.find(p => p.name === gameState.currentPlayer);
+          if (!player) {
+            window.gameUtils.showError('No current player.');
+            return;
+          }
+          if (player.bankValue > 0) {
+            window.gameUtils.showError('Deploy all troops before confirming.');
+            return;
+          }
+          if (gameState.players.every(p => p.bankValue === 0)) {
+            try {
+              gameState.phase = 'cardplay';
+              localStorage.setItem('gameState', JSON.stringify(gameState));
+              logToConsole('Fading out UI and redirecting to player1.html');
+              uiOverlay.classList.add('fade-out');
+              setTimeout(() => {
+                window.location.href = 'player1.html';
+              }, 1000);
+            } catch (e) {
+              logToConsole(`Failed to save game state: ${e.message}`);
+              window.gameUtils.showError('Failed to save game state.');
+            }
+            return;
+          }
+          currentPlayerIndex = (currentPlayerIndex + 1) % deploymentOrder.length;
+          gameState.currentPlayer = deploymentOrder[currentPlayerIndex];
+          logToConsole(`Advancing to next player: ${gameState.currentPlayer}`);
+          selectedTerritory = null;
+          viewTroopsActive = false;
+          keyboardBuffer = '';
+          negativeInput = false;
+          window.selectedTerritory = null;
+          window.viewTroopsActive = false;
+          window.gameUtils.showError('');
+          window.gameUtils.renderAll(gameState, null, deployedTroops[gameState.currentPlayer]);
+          updatePlayerNameDisplay();
+          updateBankDisplay();
+          try {
+            localStorage.setItem('gameState', JSON.stringify(gameState));
+            logToConsole('Game state saved');
+          } catch (e) {
+            logToConsole(`Failed to save game state: ${e.message}`);
+            window.gameUtils.showError('Failed to save game state.');
+          }
+        });
+      }
+
+      const svg = document.querySelector('.svg-overlay');
+      if (svg) {
+        svg.addEventListener('wheel', (e) => {
+          if (!window.selectedTerritory) return;
+          e.preventDefault();
+          const player = gameState.players?.find(p => p.name === gameState.currentPlayer);
+          const territory = player?.territories.find(t => t.name === window.selectedTerritory);
+          if (!territory) return;
+          const delta = e.deltaY > 0 ? -1 : 1;
+          const newTroops = territory.troops + delta;
+          if (newTroops < 1) {
+            window.gameUtils.showError('Cannot reduce troops below 1.');
+            return;
+          }
+          if (delta > 0 && player.bankValue === 0) {
+            window.gameUtils.showError('No troops available in bank.');
+            return;
+          }
+          territory.troops = newTroops;
+          player.bankValue -= delta;
+          player.troopsTotal += delta;
+          deployedTroops[player.name][territory.name] = territory.troops - 1;
+          window.gameUtils.renderAll(gameState, window.selectedTerritory, deployedTroops[gameState.currentPlayer]);
+          updateBankDisplay();
+          try {
+            localStorage.setItem('gameState', JSON.stringify(gameState));
+            logToConsole('Game state saved');
+          } catch (e) {
+            logToConsole(`Failed to save game state: ${e.message}`);
+            window.gameUtils.showError('Failed to save game state.');
+          }
+        });
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (!window.selectedTerritory) return;
+        const player = gameState.players?.find(p => p.name === gameState.currentPlayer);
+        const territory = player?.territories.find(t => t.name === window.selectedTerritory);
+        if (!territory) return;
+        if (e.key === 'Enter') {
+          if (keyboardBuffer === '') return;
+          let troops = parseInt(keyboardBuffer);
+          if (isNaN(troops)) {
+            window.gameUtils.showError('Invalid troop count.');
+            keyboardBuffer = '';
+            negativeInput = false;
+            return;
+          }
+          const troopChange = negativeInput ? -troops : troops;
+          const newTroops = territory.troops + troopChange;
+          if (newTroops < 1) {
+            window.gameUtils.showError('Cannot reduce troops below 1.');
+            keyboardBuffer = '';
+            negativeInput = false;
+            return;
+          }
+          if (troopChange > player.bankValue) {
+            window.gameUtils.showError(`Only ${player.bankValue} troops available.`);
+            keyboardBuffer = '';
+            negativeInput = false;
+            return;
+          }
+          territory.troops = newTroops;
+          player.bankValue -= troopChange;
+          player.troopsTotal += troopChange;
+          deployedTroops[player.name][territory.name] = territory.troops - 1;
+          selectedTerritory = null;
+          keyboardBuffer = '';
+          negativeInput = false;
+          window.selectedTerritory = null;
+          window.gameUtils.showError('');
+          window.gameUtils.renderAll(gameState, null, deployedTroops[gameState.currentPlayer]);
+          updateBankDisplay();
+          try {
+            localStorage.setItem('gameState', JSON.stringify(gameState));
+            logToConsole('Game state saved');
+          } catch (e) {
+            logToConsole(`Failed to save game state: ${e.message}`);
+            window.gameUtils.showError('Failed to save game state.');
+          }
+        } else if (e.key === '-') {
+          negativeInput = true;
+          keyboardBuffer = '';
+          window.gameUtils.showError('Enter number to remove troops.');
+        } else if (e.key >= '0' && e.key <= '9') {
+          keyboardBuffer += e.key;
+          if (keyboardBuffer.length > 3) {
+            window.gameUtils.showError('Troop count must be 3 digits or less.');
+            keyboardBuffer = keyboardBuffer.slice(0, -1);
+          }
+        }
+      });
+
+      document.addEventListener('DOMContentLoaded', () => {
+        logToConsole('DOM loaded, initializing deploy1');
+        const canvas = document.getElementById('canvas');
+        if (!canvas || !bankNumber || !confirmButton || !resetButton || !viewTroopsButton || !playerNameText || !errorDiv || !uiOverlay) {
+          logToConsole('Error: Missing critical DOM elements');
+          errorDiv.textContent = 'Missing critical elements. Redirecting to login.';
+          setTimeout(() => { window.location.href = 'risque.html'; }, 1000);
+          return;
+        }
+        window.gameUtils.init();
+        requestAnimationFrame(() => {
+          window.gameUtils.initGameView();
+          initializeDeployment();
+        });
+      });
+    } catch (e) {
+      logToConsole(`Script error in deploy1.html: ${e.message}`);
+      console.error('Script error in deploy1.html:', e);
+    }
+  </script>
+</body>
+</html>

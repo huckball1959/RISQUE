@@ -1,0 +1,118 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000000;
+  font-family: Arial, sans-serif;
+  touch-action: none;
+  -webkit-text-size-adjust: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.canvas-wrapper {
+  width: 1920px;
+  height: 1080px;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform-origin: top center;
+  transform: translate(-50%, 0);
+  background: #6eb4bd;
+  pointer-events: auto;
+  opacity: 0;
+  transition: opacity 2s ease;
+  display: none;
+}
+.canvas-wrapper.visible {
+  display: block;
+  opacity: 1;
+}
+.stage-image {
+  position: absolute;
+  width: 1920px;
+  height: 1080px;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  object-fit: contain;
+  background: #333333;
+  display: none;
+}
+.stage-image.visible {
+  display: block;
+}
+.svg-overlay {
+  position: absolute;
+  width: 1920px;
+  height: 1080px;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  pointer-events: all;
+  display: none;
+}
+.svg-overlay.visible {
+  display: block;
+}
+.ui-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1920px;
+  height: 1080px;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 2s ease;
+}
+.ui-overlay.visible {
+  opacity: 1;
+}
+.ui-overlay.fade-out {
+  opacity: 0;
+}
+.ui-overlay * {
+  pointer-events: auto;
+}
+.territory-circle {
+  cursor: pointer;
+  stroke: #000000;
+  stroke-width: 2;
+  pointer-events: all;
+  transition: r 0.2s, stroke-width 0.2s;
+}
+.territory-circle:hover {
+  r: 35;
+}
+.territory-number {
+  font-family: Arial, sans-serif;
+  font-weight: bold;
+  font-size: 21px;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: all;
+  cursor: pointer;
+}
+.error {
+  position: absolute;
+  left: 1105px;
+  top: 950px;
+  max-width: 200px;
+  white-space: normal;
+  color: #ff0000;
+  font-family: Arial, sans-serif;
+  font-size: 16px;
+  font-weight: 900;
+  z-index: 2;
+  pointer-events: none;
+  text-align: left;
+  visibility: hidden;
+}
+.error.visible {
+  visibility: visible;
+}

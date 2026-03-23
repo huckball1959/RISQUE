@@ -1,0 +1,362 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>RISQUE - Card Play Summary</title>
+  <style>
+    body {
+      background: #000;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .summary-container {
+      max-width: 800px;
+      text-align: left;
+    }
+    .summary-header {
+      font-size: 24px;
+      font-weight: bold;
+      text-transform: uppercase;
+      text-shadow: 2px 2px 2px rgba(0, 0, 0, 0.7);
+      margin-bottom: 20px;
+    }
+    .summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+    }
+    .summary-table th, .summary-table td {
+      border: 1px solid #fff;
+      padding: 8px;
+      font-size: 16px;
+      text-align: left;
+    }
+    .summary-table th {
+      background: #333;
+      font-weight: bold;
+    }
+    .summary-table td {
+      background: #000;
+    }
+    .gain {
+      color: #0f0;
+    }
+    .loss {
+      color: #f00;
+    }
+    .acquisition {
+      color: #f00;
+      font-weight: bold;
+    }
+    .elimination {
+      color: #f00;
+      font-weight: bold;
+    }
+    .summary-text {
+      font-size: 16px;
+      margin-bottom: 20px;
+    }
+    .continue-button {
+      width: 258px;
+      height: 36px;
+      background: #000;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      font-size: 16px;
+      font-weight: bold;
+      text-align: center;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .continue-button:hover {
+      background: #1a1a1a;
+    }
+    .continue-button:active {
+      transform: scale(0.95);
+    }
+  </style>
+</head>
+<body>
+  <div class="summary-container">
+    <div class="summary-header" id="summary-header">Card Play Summary</div>
+    <table class="summary-table" id="summary-table">
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Cards</th>
+          <th>Effect</th>
+        </tr>
+      </thead>
+      <tbody id="summary-body"></tbody>
+    </table>
+    <div class="summary-text" id="remaining-cards"></div>
+    <div class="summary-text" id="eliminations"></div>
+    <button class="continue-button" id="continue-button">Continue to Income Phase</button>
+  </div>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const gameState = JSON.parse(localStorage.getItem('gameState') || '{}');
+      const initialGameState = JSON.parse(localStorage.getItem('initialGameState') || '{}');
+      const logs = JSON.parse(localStorage.getItem('gameLogs') || '[]');
+      const currentPlayer = gameState.currentPlayer || 'Unknown';
+      const player = gameState.players?.find(p => p.name === currentPlayer);
+
+      // Find the latest turn start
+      let lastTurnStartIndex = -1;
+      logs.forEach((log, index) => {
+        if (log.includes('[Cardplay] Loaded at')) lastTurnStartIndex = index;
+      });
+
+      // Build playedCards from logs for current turn and player
+      let playedCards = [];
+      const confirmedActions = logs.filter((log, index) => 
+        index >= lastTurnStartIndex && 
+        !logs.slice(index + 1).some(l => l.includes('Game state reset')) &&
+        (log.includes('Book effects processed') || log.includes('Individual card effect processed'))
+      );
+      confirmedActions.forEach((log, index) => {
+        const logIndex = logs.indexOf(log);
+        if (log.includes('Book effects processed')) {
+          const bookData = JSON.parse(logs[logIndex + 1] || '{}');
+          if (bookData.effects) {
+            const bookLog = logs.slice(lastTurnStartIndex, logIndex).reverse().find(l => l.includes('Book selected, processing effects'));
+            const bookCards = bookLog ? JSON.parse(logs[logs.indexOf(bookLog) + 1] || '{}').cards : [];
+            const isCurrentPlayer = bookData.effects.some(e => 
+              (e.action === 'add_troops' || e.action === 'acquire') && gameState.players?.find(p => p.name === currentPlayer)?.territories.some(t => t.name === e.territory) ||
+              (e.action === 'remove_troops' && e.owner !== currentPlayer)
+            );
+            if (isCurrentPlayer) {
+              playedCards.push({
+                action: 'book',
+                cards: bookCards.map(card => ({ card, id: 'unknown' })),
+                effects: bookData.effects,
+                confirmed: true
+              });
+            }
+          }
+        } else if (log.includes('Individual card effect processed')) {
+          const cardData = JSON.parse(logs[logIndex + 1] || '{}');
+          if (cardData.card && cardData.territory) {
+            const isCurrentPlayer = (cardData.action === 'add_troops' || cardData.action === 'acquire') && 
+              gameState.players?.find(p => p.name === currentPlayer)?.territories.some(t => t.name === cardData.territory) ||
+              (cardData.action === 'remove_troops' && cardData.owner !== currentPlayer) ||
+              cardData.action === 'aerial_attack' || cardData.action === 'declined';
+            if (isCurrentPlayer) {
+              playedCards.push({
+                action: cardData.action,
+                cards: [{ card: cardData.card, id: cardData.cardId || 'unknown' }],
+                territory: cardData.territory,
+                owner: cardData.owner,
+                troops: cardData.troops,
+                confirmed: true
+              });
+            }
+          }
+        }
+      });
+
+      // Helper to get initial troops from logs or initialGameState
+      function getInitialTroopsFromLogs(territory, action, playerName, logIndex, isOwner) {
+        let initialTroops = 0;
+        const relevantLog = logs.slice(lastTurnStartIndex, logIndex).reverse().find(log =>
+          (log.includes('Added troops to owned territory') || 
+           log.includes('Territory acquired') || 
+           log.includes('Removed troops from enemy territory') ||
+           log.includes('renderTerritories')) &&
+          log.includes(`territory: ${territory}`)
+        );
+        if (relevantLog) {
+          const dataIndex = logs.indexOf(relevantLog) + 1;
+          const logData = dataIndex < logs.length ? JSON.parse(logs[dataIndex] || '{}') : {};
+          initialTroops = (logData.troops || 0) - (action === 'add_troops' && isOwner && logData.troops ? 2 : action === 'remove_troops' && !isOwner ? -2 : 0);
+        } else {
+          const targetPlayer = isOwner ? initialGameState.players?.find(p => p.name === playerName) : 
+                                        initialGameState.players?.find(p => p.territories.some(t => t.name === territory));
+          initialTroops = targetPlayer?.territories.find(t => t.name === territory)?.troops || 0;
+        }
+        if (action === 'add_troops' && isOwner && initialTroops === 0) {
+          const playerTerritory = gameState.players?.find(p => p.name === playerName)?.territories.find(t => t.name === territory);
+          if (playerTerritory?.troops) {
+            initialTroops = Math.max(0, playerTerritory.troops - 2);
+          }
+        }
+        return initialTroops;
+      }
+
+      // Set header with timestamp
+      const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+      document.getElementById('summary-header').textContent = `Card Play Summary for ${currentPlayer} on ${timestamp}`;
+
+      // Build summary table
+      const summaryBody = document.getElementById('summary-body');
+      let tableContent = '';
+      playedCards.forEach((pc, index) => {
+        const cards = pc.cards.map(c => c.card.toUpperCase()).join(', ');
+        let actionLogIndex = logs.length;
+        const actionLog = logs.find((log, i) => {
+          if (i < lastTurnStartIndex) return false;
+          if (log.includes('Individual card effect processed') && log.includes(pc.territory)) {
+            actionLogIndex = i;
+            return true;
+          }
+          if (log.includes('Book effects processed')) {
+            const bookData = JSON.parse(logs[i + 1] || '{}');
+            if (bookData.effects?.some(e => e.territory === pc.territory)) {
+              actionLogIndex = i;
+              return true;
+            }
+          }
+          return false;
+        }) || logs[logs.length - 1];
+        if (pc.action === 'book') {
+          const effects = pc.effects.map(e => {
+            const playerTerritory = player?.territories.find(t => t.name === e.territory);
+            let initialTroops = getInitialTroopsFromLogs(e.territory, e.action, currentPlayer, actionLogIndex, e.action !== 'remove_troops');
+            let currentTroops = playerTerritory?.troops || 0;
+            if (e.action === 'add_troops') {
+              currentTroops = playerTerritory?.troops || (initialTroops + 2);
+              if (currentTroops === initialTroops && playerTerritory?.troops) {
+                initialTroops = Math.max(0, playerTerritory.troops - 2);
+                currentTroops = playerTerritory.troops;
+              }
+              return `<span class="gain">${e.territory.toUpperCase()}: +2 troops (${initialTroops.toString().padStart(3, '0')} → ${currentTroops.toString().padStart(3, '0')})</span>`;
+            }
+            if (e.action === 'remove_troops') {
+              const ownerPlayer = gameState.players.find(p => p.name === e.owner) || 
+                                  gameState.players.find(p => p.territories.some(t => t.name === e.territory));
+              const ownerName = ownerPlayer?.name || 'Unknown';
+              const ownerTerritory = ownerPlayer?.territories.find(t => t.name === e.territory);
+              const ownerInitialTerritory = initialGameState.players
+                ?.find(p => p.territories.some(t => t.name === e.territory));
+              const ownerTroops = ownerTerritory?.troops || 0;
+              const ownerInitialTroops = ownerInitialTerritory?.territories.find(t => t.name === e.territory)?.troops || initialTroops;
+              return `<span class="loss">${e.territory.toUpperCase()}: ${ownerName} lost 2 troops (${ownerInitialTroops.toString().padStart(3, '0')} → ${ownerTroops.toString().padStart(3, '0')})</span>`;
+            }
+            if (e.action === 'acquire') {
+              return `<span class="acquisition">${e.territory.toUpperCase()}: Acquired by ${currentPlayer} (001)</span>`;
+            }
+            if (e.action === 'declined') {
+              return `${e.territory.toUpperCase()}: Declined`;
+            }
+            return `${e.territory.toUpperCase()}: No effect`;
+          }).join('; ');
+          tableContent += `
+            <tr>
+              <td>Book ${index + 1}</td>
+              <td>${cards}</td>
+              <td>${effects}</td>
+            </tr>
+          `;
+        } else {
+          let effect = '';
+          const playerTerritory = player?.territories.find(t => t.name === pc.territory);
+          let initialTroops = getInitialTroopsFromLogs(pc.territory, pc.action, currentPlayer, actionLogIndex, pc.action !== 'remove_troops');
+          let currentTroops = playerTerritory?.troops || 0;
+          if (pc.action === 'add_troops') {
+            currentTroops = playerTerritory?.troops || (initialTroops + 2);
+            if (currentTroops === initialTroops && playerTerritory?.troops) {
+              initialTroops = Math.max(0, playerTerritory.troops - 2);
+              currentTroops = playerTerritory.troops;
+            }
+            effect = `<span class="gain">${pc.territory.toUpperCase()}: +2 troops (${initialTroops.toString().padStart(3, '0')} → ${currentTroops.toString().padStart(3, '0')})</span>`;
+          } else if (pc.action === 'remove_troops') {
+            const ownerPlayer = gameState.players.find(p => p.name === pc.owner) || 
+                                gameState.players.find(p => p.territories.some(t => t.name === pc.territory));
+            const ownerName = ownerPlayer?.name || 'Unknown';
+            const ownerTerritory = ownerPlayer?.territories.find(t => t.name === pc.territory);
+            const ownerInitialTerritory = initialGameState.players
+              ?.find(p => p.territories.some(t => t.name === pc.territory));
+            const ownerTroops = ownerTerritory?.troops || 0;
+            const ownerInitialTroops = ownerInitialTerritory?.territories.find(t => t.name === pc.territory)?.troops || initialTroops;
+            effect = `<span class="loss">${pc.territory.toUpperCase()}: ${ownerName} lost 2 troops (${ownerInitialTroops.toString().padStart(3, '0')} → ${ownerTroops.toString().padStart(3, '0')})</span>`;
+          } else if (pc.action === 'acquire') {
+            effect = `<span class="acquisition">${pc.territory.toUpperCase()}: Acquired by ${currentPlayer} (001)</span>`;
+          } else if (pc.action === 'aerial_attack') {
+            effect = 'Wildcard: Aerial Attack enabled';
+          } else if (pc.action === 'declined') {
+            effect = `${pc.territory?.toUpperCase() || 'Wildcard'}: Declined`;
+          } else {
+            effect = `${pc.territory?.toUpperCase() || 'Unknown'}: No effect`;
+          }
+          tableContent += `
+            <tr>
+              <td>Card</td>
+              <td>${cards}</td>
+              <td>${effect}</td>
+            </tr>
+          `;
+        }
+      });
+      summaryBody.innerHTML = tableContent || '<tr><td colspan="3">No confirmed cards played</td></tr>';
+
+      // Remaining cards and eliminations
+      const remainingCards = player?.cards?.map(c => c.name.toUpperCase()).join(', ') || 'None';
+      document.getElementById('remaining-cards').textContent = `Remaining Cards: ${remainingCards}`;
+      const eliminations = logs.filter(log => 
+        log.includes('Player eliminated') && 
+        log.includes(`to: ${currentPlayer}`) && 
+        !logs.slice(logs.indexOf(log) + 1).some(l => l.includes('Game state reset'))
+      ).map(log => {
+        const match = log.match(/Player eliminated.*territory: (\w+), from: (\w+), to: (\w+)/);
+        return match ? `<span class="elimination">${match[2]} eliminated by acquiring ${match[1].toUpperCase()}</span>` : log;
+      });
+      document.getElementById('eliminations').textContent = `Eliminations: ${eliminations.length > 0 ? eliminations.join('; ') : 'None'}`;
+
+      // Continue to in-come.html
+      document.getElementById('continue-button').addEventListener('click', () => {
+        window.location.href = 'in-come.html';
+      });
+    });
+  </script>
+</body>
+</html>
