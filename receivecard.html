@@ -1,0 +1,420 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Receive Card</title>
+  <link rel="stylesheet" href="game.css">
+  <script src="core.js"></script>
+  <style>
+    .text {
+      position: absolute;
+      color: #000000;
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: bold;
+      box-sizing: border-box;
+      text-align: center;
+      pointer-events: none;
+    }
+    .title { font-size: 40px; }
+    .player-name { font-size: 40px; }
+    .button {
+      position: absolute;
+      background: #dcdcdc;
+      border: 2px solid #000;
+      border-radius: 4px;
+      color: #000;
+      font-size: 16px;
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: bold;
+      cursor: pointer;
+      box-sizing: border-box;
+      transition: background 0.2s, transform 0.1s;
+      pointer-events: all;
+      z-index: 2;
+    }
+    .button:hover:not(:disabled) { background: #c0c0c0; }
+    .button:active:not(:disabled) { transform: scale(0.95); }
+    .card-image {
+      position: absolute;
+      object-fit: contain;
+      z-index: 2;
+      pointer-events: none;
+    }
+    .new-card {
+      box-shadow: 0 0 10px #ffff00, 0 0 20px #ff0000;
+      width: 100px;
+      height: 160px;
+    }
+    .hand-card { width: 100px; height: 160px; }
+  </style>
+</head>
+<body>
+  <div class="canvas-wrapper" id="canvas">
+    <div class="ui-overlay">
+      <div id="title" class="text title" style="left: 1152px; top: 328.53px; width: 704px; height: 80px;">Receive Card</div>
+      <div id="player-name" class="text player-name" style="left: 1152px; top: 275px; width: 704px; height: 64px;"></div>
+      <div id="card-message" class="text" style="left: 1152px; top: 370px; width: 704px; height: 80px; font-size: 40px;"></div>
+      <img id="new-card-image" class="card-image new-card" alt="No card earned" src="assets/images/cards/CARDBACK.webp">
+      <button id="end-turn" class="button" style="left: 1250px; top: 900px; width: 260px; height: 35px;" aria-label="End turn">End Turn</button>
+      <button id="save-game" class="button" style="left: 1520px; top: 900px; width: 260px; height: 35px; background: #28a745; color: #ffffff;" aria-label="Save game">Save Game</button>
+    </div>
+  </div>
+  <script type="text/javascript">
+    var gk_isXlsx = false;
+    var gk_xlsxFileLookup = {};
+    var gk_fileData = {};
+    function filledCell(cell) {
+      return cell !== '' && cell != null;
+    }
+    function loadFileData(filename) {
+      if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+        try {
+          var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+          var firstSheetName = workbook.SheetNames[0];
+          var worksheet = workbook.Sheets[firstSheetName];
+          var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+          var filteredData = jsonData.filter(row => row.some(filledCell));
+          var headerRowIndex = filteredData.findIndex((row, index) =>
+            row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+          );
+          if (headerRowIndex === -1 || headerRowIndex > 25) {
+            headerRowIndex = 0;
+          }
+          var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex));
+          csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+          return csv;
+        } catch (e) {
+          console.error(e);
+          return "";
+        }
+      }
+      return gk_fileData[filename] || "";
+    }
+    function generateUUID() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
+  </script>
+  <script>
+    console.log('[ReceiveCard] Loaded at', new Date().toLocaleString());
+    function logToStorage(message, data) {
+      const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+      const logEntry = `[${timestamp}] [ReceiveCard] ${message}`;
+      const logs = JSON.parse(localStorage.getItem("gameLogs") || "[]");
+      logs.push(logEntry);
+      if (data) logs.push(JSON.stringify(data, null, 2));
+      localStorage.setItem("gameLogs", JSON.stringify(logs));
+      console.log(logEntry, data || '');
+    }
+    function shuffleArray(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+      return array;
+    }
+    function showPrompt(message) {
+      document.getElementById('card-message').textContent = message;
+    }
+    function validateDeck() {
+      const allPlayerCards = window.gameState.players.reduce((acc, player) => {
+        return acc.concat(player.cards ? player.cards.map(card => typeof card === 'string' ? card : card.name) : []);
+      }, []);
+      const validDeck = window.gameUtils.cardNames.filter(card => !allPlayerCards.includes(card));
+      if (!window.gameState.deck || !Array.isArray(window.gameState.deck) || window.gameState.deck.length <= 2 || !window.gameState.deck.every(card => window.gameUtils.cardNames.includes(card))) {
+        window.gameState.deck = shuffleArray([...validDeck]);
+        logToStorage('Deck invalid or too small, reset to', { firstFiveCards: window.gameState.deck.slice(0, 5), totalCards: window.gameState.deck.length });
+      }
+      if (window.gameState.deck.some(card => allPlayerCards.includes(card))) {
+        window.gameState.deck = shuffleArray([...validDeck]);
+        logToStorage('Deck contained duplicates, reset to', { firstFiveCards: window.gameState.deck.slice(0, 5), totalCards: window.gameState.deck.length });
+      }
+      logToStorage('Deck after validation', { firstFiveCards: window.gameState.deck.slice(0, 5), totalCards: window.gameState.deck.length });
+    }
+    function drawCard() {
+      logToStorage('Deck before draw', { deck: [...window.gameState.deck], cardCount: window.gameState.players.find(p => p.name === window.gameState.currentPlayer).cardCount });
+      validateDeck();
+      if (window.gameState.deck.length === 0) {
+        logToStorage('No cards available to draw after validation');
+        return null;
+      }
+      const randomIndex = Math.floor(Math.random() * window.gameState.deck.length);
+      const card = window.gameState.deck.splice(randomIndex, 1)[0];
+      logToStorage('Drew card', { card, player: window.gameState.currentPlayer, remainingDeck: [...window.gameState.deck].slice(0, 5), cardCount: window.gameState.players.find(p => p.name === window.gameState.currentPlayer).cardCount + 1 });
+      return { name: card, id: generateUUID() };
+    }
+    function displayCard() {
+      if (!window.gameState || !window.gameState.players) {
+        logToStorage('Invalid game state for card display');
+        showPrompt('Invalid game state');
+        return;
+      }
+      const cardMessage = document.getElementById('card-message');
+      const newCardImage = document.getElementById('new-card-image');
+      const uiOverlay = document.querySelector('.ui-overlay');
+      const currentPlayer = window.gameState.players.find(p => p.name === window.gameState.currentPlayer);
+      if (!currentPlayer) {
+        logToStorage('Current player not found');
+        showPrompt('Current player not found');
+        return;
+      }
+      currentPlayer.cards = currentPlayer.cards || [];
+      logToStorage(`Checking card eligibility for ${currentPlayer.name}`, {
+        cardEarnedViaAttack: window.gameState.cardEarnedViaAttack,
+        cardEarnedViaCardplay: window.gameState.cardEarnedViaCardplay,
+        cardAwardedThisTurn: window.gameState.cardAwardedThisTurn,
+        currentCards: currentPlayer.cards,
+        cardCount: currentPlayer.cardCount || 0
+      });
+      document.querySelectorAll('.card-image.hand-card').forEach(card => card.remove());
+      const cardWidth = 100;
+      const spacing = 10;
+      const startX = 1200;
+      const handCards = currentPlayer.cards || [];
+      handCards.forEach((card, index) => {
+        const cardName = typeof card === 'string' ? card : card.name;
+        const img = document.createElement('img');
+        img.className = 'card-image hand-card';
+        img.src = `assets/images/cards/${cardName}.webp`;
+        img.alt = `Card: ${cardName.replace(/_/g, ' ')}`;
+        img.style.left = `${startX + (index * (cardWidth + spacing))}px`;
+        img.style.top = '550px';
+        uiOverlay.appendChild(img);
+      });
+      let newCard = null;
+      if ((window.gameState.cardEarnedViaAttack || window.gameState.cardEarnedViaCardplay) && !window.gameState.cardAwardedThisTurn) {
+        newCard = drawCard();
+        if (newCard && !currentPlayer.cards.some(c => (typeof c === 'string' ? c : c.name) === newCard.name)) {
+          currentPlayer.cards.push(newCard);
+          currentPlayer.cardCount = currentPlayer.cards.length;
+          window.gameState.cardAwardedThisTurn = true;
+          window.gameState.lastCardDrawn = newCard.name;
+          cardMessage.textContent = `New card: ${newCard.name.replace(/_/g, ' ').toUpperCase()}`;
+          newCardImage.src = `assets/images/cards/${newCard.name}.webp`;
+          newCardImage.alt = `New card: ${newCard.name.replace(/_/g, ' ')}`;
+          newCardImage.style.left = `${startX + (handCards.length * (cardWidth + spacing))}px`;
+          newCardImage.style.top = '550px';
+          logToStorage(`Drew card for ${currentPlayer.name}`, { card: newCard, updatedCards: currentPlayer.cards, cardCount: currentPlayer.cardCount });
+        } else {
+          logToStorage('Failed to draw a non-duplicate card or no cards available');
+          cardMessage.textContent = 'No unique cards available.';
+          newCardImage.src = 'assets/images/cards/CARDBACK.webp';
+          newCardImage.alt = 'No card earned';
+          newCardImage.style.left = `${startX + (handCards.length * (cardWidth + spacing))}px`;
+          newCardImage.style.top = '550px';
+          window.gameState.cardAwardedThisTurn = true;
+        }
+      } else {
+        cardMessage.textContent = 'No card earned';
+        newCardImage.src = 'assets/images/cards/CARDBACK.webp';
+        newCardImage.alt = 'No card earned';
+        newCardImage.style.left = `${startX + (handCards.length * (cardWidth + spacing))}px`;
+        newCardImage.style.top = '550px';
+        logToStorage(`No card earned for ${currentPlayer.name}`, { cardAwardedThisTurn: window.gameState.cardAwardedThisTurn });
+      }
+      uiOverlay.appendChild(newCardImage);
+      localStorage.setItem('gameState', JSON.stringify(window.gameState));
+    }
+    function advanceTurn() {
+      const gameState = window.gameState || {};
+      if (!gameState || !gameState.turnOrder || !Array.isArray(gameState.turnOrder) || gameState.turnOrder.length === 0) {
+        logToStorage('Invalid game state for advancing turn');
+        showPrompt('Invalid game state. Redirecting to risque.');
+        setTimeout(() => { window.location.href = 'risque.html'; }, 2000);
+        return false;
+      }
+      const currentIndex = gameState.turnOrder.indexOf(gameState.currentPlayer);
+      if (currentIndex === -1) {
+        logToStorage('Current player not in turn order');
+        showPrompt('Invalid turn order. Redirecting to risque.');
+        setTimeout(() => { window.location.href = 'risque.html'; }, 2000);
+        return false;
+      }
+      const nextIndex = (currentIndex + 1) % gameState.turnOrder.length;
+      gameState.currentPlayer = gameState.turnOrder[nextIndex];
+      gameState.lastCardDrawn = null;
+      gameState.cardEarnedViaAttack = false;
+      gameState.cardEarnedViaCardplay = false;
+      gameState.cardAwardedThisTurn = false;
+      if (nextIndex === 0) {
+        gameState.round = (gameState.round || 1) + 1;
+        logToStorage(`Incremented round to ${gameState.round}`);
+      }
+      gameState.phase = 'cardplay';
+      logToStorage(`Advanced turn to ${gameState.currentPlayer}, round ${gameState.round}, phase ${gameState.phase}`);
+      return true;
+    }
+    function saveGameStateToFile() {
+      try {
+        const gameState = window.gameState || {};
+        if (!gameState || !gameState.players || !gameState.turnOrder || !Array.isArray(gameState.turnOrder) || gameState.turnOrder.length === 0) {
+          logToStorage('No valid game state to save');
+          showPrompt('No game state to save. Redirecting to risque.');
+          setTimeout(() => { window.location.href = 'risque.html'; }, 2000);
+          return;
+        }
+        if (advanceTurn()) {
+          const date = new Date();
+          const dateString = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+          const filename = `Game-${dateString}.json`;
+          const blob = new Blob([JSON.stringify(gameState, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          logToStorage(`Game state saved as ${filename}`, { currentPlayer: gameState.currentPlayer, phase: gameState.phase, round: gameState.round });
+          showPrompt(`Game saved as ${filename}`);
+        }
+      } catch (err) {
+        logToStorage(`Error saving game state: ${err.message}`);
+        showPrompt('Error saving game. Redirecting to risque.');
+        setTimeout(() => { window.location.href = 'risque.html'; }, 2000);
+      }
+    }
+    function endTurn() {
+      try {
+        if (advanceTurn()) {
+          localStorage.setItem('gameState', JSON.stringify(window.gameState));
+          logToStorage('End turn, navigating to cardplay.html');
+          window.location.href = 'cardplay.html';
+        }
+      } catch (err) {
+        logToStorage(`Error ending turn: ${err.message}`);
+        showPrompt('Error ending turn. Redirecting to risque.');
+        setTimeout(() => { window.location.href = 'risque.html'; }, 2000);
+      }
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+      window.gameUtils.init = () => {
+        console.log('[ReceiveCard] Skipped core.js init to avoid premature canvas setup');
+      };
+      window.gameUtils.loadGameState = (callback) => {
+        try {
+          window.gameState = JSON.parse(localStorage.getItem('gameState') || '{}');
+          logToStorage('Loaded gameState', window.gameState);
+          if (!window.gameUtils.validateGameState(window.gameState)) {
+            logToStorage('Invalid game state');
+            showPrompt('Invalid game state. Redirecting to risque.');
+            setTimeout(() => { window.location.href = 'risque.html'; }, 2000);
+            callback(null);
+            return;
+          }
+          if (typeof window.gameState.round === 'undefined') {
+            window.gameState.round = 1;
+            logToStorage('Initialized gameState.round to 1');
+          }
+          if (typeof window.gameState.cardAwardedThisTurn === 'undefined') {
+            window.gameState.cardAwardedThisTurn = false;
+            logToStorage('Initialized cardAwardedThisTurn to false');
+          }
+          if (typeof window.gameState.cardEarnedViaAttack === 'undefined') {
+            window.gameState.cardEarnedViaAttack = false;
+            logToStorage('Initialized cardEarnedViaAttack to false');
+          }
+          if (typeof window.gameState.cardEarnedViaCardplay === 'undefined') {
+            window.gameState.cardEarnedViaCardplay = false;
+            logToStorage('Initialized cardEarnedViaCardplay to false');
+          }
+          window.gameState.lastCardDrawn = null;
+          logToStorage('Cleared lastCardDrawn');
+          window.gameState.players.forEach(player => {
+            if (!player.cards || !Array.isArray(player.cards)) {
+              player.cards = [];
+              player.cardCount = 0;
+            } else {
+              player.cards = player.cards.filter(card => {
+                const cardName = typeof card === 'string' ? card : card.name;
+                return window.gameUtils.cardNames.includes(cardName);
+              });
+              player.cardCount = player.cards.length;
+            }
+          });
+          validateDeck();
+          localStorage.setItem('gameState', JSON.stringify(window.gameState));
+          logToStorage('Cleaned player cards and deck', { players: window.gameState.players.map(p => ({ name: p.name, cards: p.cards })) });
+          callback(window.gameState);
+        } catch (e) {
+          logToStorage(`Failed to load game state: ${e.message}`);
+          showPrompt('Failed to load game state. Redirecting to risque.');
+          setTimeout(() => { window.location.href = 'risque.html'; }, 2000);
+          callback(null);
+        }
+      };
+      window.gameUtils.loadGameState((gameState) => {
+        if (!gameState || !gameState.players || !gameState.currentPlayer || !gameState.turnOrder || !Array.isArray(gameState.turnOrder) || gameState.turnOrder.length === 0) {
+          logToStorage('Invalid or missing game state, redirecting to risque.html');
+          showPrompt('Invalid game state. Redirecting to risque.');
+          setTimeout(() => { window.location.href = 'risque.html'; }, 2000);
+          return;
+        }
+        window.gameState = gameState;
+        window.gameUtils.initGameView();
+        window.gameUtils.renderTerritories(null, window.gameState);
+        window.gameUtils.renderStats(window.gameState);
+        updatePlayerNameDisplay();
+        displayCard();
+        document.getElementById('end-turn').addEventListener('click', endTurn);
+        document.getElementById('end-turn').addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') endTurn();
+        });
+        document.getElementById('save-game').addEventListener('click', saveGameStateToFile);
+        document.getElementById('save-game').addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') saveGameStateToFile();
+        });
+      });
+    });
+    function updatePlayerNameDisplay() {
+      const playerNameText = document.getElementById('player-name');
+      const currentPlayer = window.gameState?.players?.find(p => p.name === window.gameState.currentPlayer);
+      playerNameText.textContent = currentPlayer ? currentPlayer.name : 'No Player';
+      playerNameText.style.color = currentPlayer ? window.gameUtils.colorMap[currentPlayer.color] || '#000000' : '#000000';
+    }
+  </script>
+</body>
+</html>
