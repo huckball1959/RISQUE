@@ -129,7 +129,7 @@
       return gk_fileData[filename] || "";
     }
   </script>
-  <script src="core.js"></script>
+  <script src="js/core.js"></script>
   <script>
     console.log("[Income] Loaded at", new Date().toLocaleString());
 
@@ -171,14 +171,14 @@
         if (!gameState?.players || !gameState.currentPlayer || !gameState.continentCollectionCounts) {
           console.error("[Income] Invalid game state");
           window.gameUtils.showError("Invalid game state. Redirecting to risque.");
-          setTimeout(() => { window.location.href = 'risque.html'; }, 2000);
+          setTimeout(() => { window.location.href = 'game.html?phase=login&loginLegacyNext=game.html%3Fphase%3DplayerSelect%26selectKind%3DfirstCard&loginLoadRedirect=game.html%3Fphase%3DprivacyGate%26next%3Dgame.html%253Fphase%253Dcardplay%2526legacyNext%253Dincome.html'; }, 2000);
           return;
         }
         const currentPlayer = gameState.players.find(p => p.name === gameState.currentPlayer);
         if (!currentPlayer) {
           console.error("[Income] Current player not found");
           window.gameUtils.showError("Current player not found. Redirecting to risque.");
-          setTimeout(() => { window.location.href = 'risque.html'; }, 2000);
+          setTimeout(() => { window.location.href = 'game.html?phase=login&loginLegacyNext=game.html%3Fphase%3DplayerSelect%26selectKind%3DfirstCard&loginLoadRedirect=game.html%3Fphase%3DprivacyGate%26next%3Dgame.html%253Fphase%253Dcardplay%2526legacyNext%253Dincome.html'; }, 2000);
           return;
         }
         currentPlayer.bankValue = currentPlayer.bankValue || 0;
@@ -248,8 +248,10 @@
           const handleConfirm = () => {
             logToStorage("Confirm button clicked");
             logToStorage("Game state before update", { phase: gameState.phase, bankValue: currentPlayer.bankValue, troopsTotal: currentPlayer.troopsTotal });
+            const terrTroopSum = currentPlayer.territories.reduce((sum, t) => sum + (Number(t.troops) || 0), 0);
             currentPlayer.bankValue = total;
-            currentPlayer.troopsTotal = (currentPlayer.troopsTotal || 0) + total;
+            currentPlayer.troopsTotal = terrTroopSum + total;
+            currentPlayer.bookValue = 0;
             // Increment counts for ALL owned continents (for future escalations)
             ownedContinents.forEach(key => {
               gameState.continentCollectionCounts[key] = (gameState.continentCollectionCounts[key] || 0) + 1;
@@ -265,17 +267,20 @@
                 logToStorage("Card awarded for conquest", { player: currentPlayer.name, card });
               }
             }
-            if (gameState.phase === 'con-deploy') {
-              logToStorage("Warning: Phase already set to con-deploy, possible double-click", { phase: gameState.phase });
-            }
-            gameState.phase = 'con-deploy';
-            localStorage.setItem('gameState', JSON.stringify(gameState));
-            logToStorage("Game state updated", { bankValue: currentPlayer.bankValue, troopsTotal: currentPlayer.troopsTotal, cardCount: currentPlayer.cardCount, phase: gameState.phase });
             uiOverlay.classList.add("fade-out");
             if (currentPlayer.bankValue <= 0) {
-              window.gameUtils.showError("No troops available to deploy. Redirecting to attack.");
-              setTimeout(() => { window.location.href = 'attack.html'; }, 2000);
+              gameState.phase = 'attack';
+              localStorage.setItem('gameState', JSON.stringify(gameState));
+              logToStorage("Game state updated (zero income, skip deploy)", { bankValue: currentPlayer.bankValue, troopsTotal: currentPlayer.troopsTotal, cardCount: currentPlayer.cardCount, phase: gameState.phase });
+              window.gameUtils.showError("No troops available to deploy. Returning to attack.");
+              setTimeout(() => { window.location.href = 'game.html?phase=attack'; }, 2000);
             } else {
+              if (gameState.phase === 'con-deploy') {
+                logToStorage("Warning: Phase already set to con-deploy, possible double-click", { phase: gameState.phase });
+              }
+              gameState.phase = 'con-deploy';
+              localStorage.setItem('gameState', JSON.stringify(gameState));
+              logToStorage("Game state updated", { bankValue: currentPlayer.bankValue, troopsTotal: currentPlayer.troopsTotal, cardCount: currentPlayer.cardCount, phase: gameState.phase });
               logToStorage("Navigating to con-deploy.html", { cardplayConquered: gameState.cardplayConquered });
               setTimeout(() => { window.location.href = 'con-deploy.html'; }, 2000);
             }
@@ -297,7 +302,7 @@
       } catch (e) {
         console.error("[Income] Failed to initialize income phase:", e.message);
         window.gameUtils.showError("Failed to initialize income phase");
-        setTimeout(() => { window.location.href = 'risque.html'; }, 2000);
+        setTimeout(() => { window.location.href = 'game.html?phase=login&loginLegacyNext=game.html%3Fphase%3DplayerSelect%26selectKind%3DfirstCard&loginLoadRedirect=game.html%3Fphase%3DprivacyGate%26next%3Dgame.html%253Fphase%253Dcardplay%2526legacyNext%253Dincome.html'; }, 2000);
       }
     }
 
@@ -307,7 +312,7 @@
         if (!gameState) {
           logToStorage("No game state found");
           window.gameUtils.showError("No game state found. Redirecting to risque.");
-          setTimeout(() => { window.location.href = 'risque.html'; }, 2000);
+          setTimeout(() => { window.location.href = 'game.html?phase=login&loginLegacyNext=game.html%3Fphase%3DplayerSelect%26selectKind%3DfirstCard&loginLoadRedirect=game.html%3Fphase%3DprivacyGate%26next%3Dgame.html%253Fphase%253Dcardplay%2526legacyNext%253Dincome.html'; }, 2000);
           return;
         }
         window.gameState = gameState;

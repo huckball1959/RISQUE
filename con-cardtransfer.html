@@ -70,7 +70,7 @@
     <div class="ui-overlay" id="ui-overlay"></div>
     <div id="error" class="error"></div>
   </div>
-  <script src="core.js"></script>
+  <script src="js/core.js"></script>
   <script>
     console.log('[CardTransfer] Loaded at', new Date().toLocaleString());
     function logToStorage(message, data) {
@@ -82,6 +82,17 @@
       localStorage.setItem("gameLogs", JSON.stringify(logs));
       console.log(logEntry, data || '');
     }
+    function cardCountAsWord(n) {
+      const words = [
+        "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+        "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty"
+      ];
+      const num = Math.floor(Number(n));
+      if (!Number.isFinite(num) || num < 0) return "Zero";
+      if (num < words.length) return words[num];
+      return String(num);
+    }
+
     document.addEventListener("DOMContentLoaded", () => {
       console.log("[CardTransfer] DOM loaded, initializing");
       requestAnimationFrame(() => {
@@ -91,7 +102,7 @@
           if (!gameState) {
             logToStorage('No game state found');
             window.gameUtils.showError("No game state found. Redirecting to launch.");
-            setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
+            setTimeout(() => { window.location.href = 'index.html'; }, 2000);
             return;
           }
           window.gameState = gameState;
@@ -158,7 +169,7 @@
         if (!gameState.players || !gameState.currentPlayer || !gameState.defeatedPlayer) {
           logToStorage('Invalid game state: missing players, currentPlayer, or defeatedPlayer');
           window.gameUtils.showError("Invalid game state. Redirecting to launch.");
-          setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
+          setTimeout(() => { window.location.href = 'index.html'; }, 2000);
           return;
         }
         const currentPlayer = gameState.players.find(p => p.name === gameState.currentPlayer);
@@ -166,49 +177,68 @@
         if (!currentPlayer || !defeatedPlayer) {
           logToStorage('Current player or defeated player not found');
           window.gameUtils.showError("Player not found. Redirecting to launch.");
-          setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
+          setTimeout(() => { window.location.href = 'index.html'; }, 2000);
           return;
         }
         const playerColor = window.gameUtils.colorMap[currentPlayer.color] || "#ffffff";
         const transferredCardCount = gameState.transferredCardCount || 0;
-        logToStorage('Cards transferred', { from: defeatedPlayer.name, to: currentPlayer.name, cardCount: transferredCardCount });
-        gameState.players = gameState.players.filter(p => p.name !== defeatedPlayer.name);
-        gameState.turnOrder = gameState.turnOrder.filter(p => p !== defeatedPlayer.name);
-        gameState.phase = 'con-cardplay';
-        gameState.defeatedPlayer = null;
-        gameState.transferredCardCount = 0;
-        localStorage.setItem('gameState', JSON.stringify(gameState));
-        logToStorage('Player removed and game state updated', {
-          removedPlayer: defeatedPlayer.name,
-          newPlayerCount: gameState.players.length,
-          newTurnOrder: gameState.turnOrder,
-          cardplayConquered: gameState.cardplayConquered
-        });
+        const defeatedName = defeatedPlayer.name;
+        logToStorage('Cards transferred', { from: defeatedName, to: currentPlayer.name, cardCount: transferredCardCount });
+        const cardWord = transferredCardCount === 1 ? "card" : "cards";
+        const countWord = cardCountAsWord(transferredCardCount);
+        gameState.risquePublicConCardTransferPrimary =
+          currentPlayer.name + " receives " + countWord + " " + cardWord + " from " + defeatedName + ".";
+        gameState.risquePublicConCardTransferReport = "";
+        gameState.phase = "con-cardtransfer";
+        try {
+          localStorage.setItem("gameState", JSON.stringify(gameState));
+        } catch (eSaveInit) {
+          logToStorage("Save card-transfer phase failed", { error: eSaveInit.message || String(eSaveInit) });
+        }
         let cardTransferContent = `
           <div class="cardtransfer-player-name" style="color: ${playerColor}">${currentPlayer.name}</div>
-          <div class="cardtransfer-message">Received ${transferredCardCount} cards from ${defeatedPlayer.name}</div>
+          <div class="cardtransfer-message">Received ${countWord} ${cardWord} from ${defeatedName}</div>
           <button id="proceed-button" class="cardtransfer-button" style="left: 1152px; top: 768px; width: 704px; height: 64px;">Proceed to Card Play</button>
         `;
         uiOverlay.innerHTML = cardTransferContent;
         uiOverlay.classList.add("visible");
         const proceedButton = document.getElementById("proceed-button");
         if (proceedButton) {
-          proceedButton.addEventListener("click", () => {
-            logToStorage('Proceed button clicked', { cardplayConquered: gameState.cardplayConquered });
+          let proceedLocked = false;
+          function proceedToCardPlay(source) {
+            if (proceedLocked) return;
+            proceedLocked = true;
+            logToStorage(source === "keydown" ? "Proceed button keydown" : "Proceed button clicked", {
+              cardplayConquered: gameState.cardplayConquered
+            });
+            gameState.players = gameState.players.filter(p => p.name !== defeatedName);
+            gameState.turnOrder = gameState.turnOrder.filter(p => p !== defeatedName);
+            gameState.defeatedPlayer = null;
+            gameState.transferredCardCount = 0;
+            gameState.phase = "con-cardplay";
+            gameState.risquePublicConCardTransferPrimary = "";
+            gameState.risquePublicConCardTransferReport = "";
+            logToStorage("Player removed and game state updated", {
+              removedPlayer: defeatedName,
+              newPlayerCount: gameState.players.length,
+              newTurnOrder: gameState.turnOrder,
+              cardplayConquered: gameState.cardplayConquered
+            });
+            try {
+              localStorage.setItem("gameState", JSON.stringify(gameState));
+            } catch (eSave) {
+              logToStorage("Save before con-cardplay failed", { error: eSave.message || String(eSave) });
+            }
             uiOverlay.classList.add("fade-out");
             setTimeout(() => {
-              logToStorage('Navigating to con-cardplay.html', { cardplayConquered: gameState.cardplayConquered });
-              window.location.href = 'con-cardplay.html';
+              logToStorage("Navigating to con-cardplay.html", { cardplayConquered: gameState.cardplayConquered });
+              window.location.href = "con-cardplay.html";
             }, 2000);
-          });
+          }
+          proceedButton.addEventListener("click", () => proceedToCardPlay("click"));
           proceedButton.addEventListener("keydown", (e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              logToStorage('Proceed button keydown', { cardplayConquered: gameState.cardplayConquered });
-              uiOverlay.classList.add("fade-out");
-              setTimeout(() => {
-                logToStorage('Navigating to con-cardplay.html', { cardplayConquered: gameState.cardplayConquered });
-                window.location.href = 'con-cardplay.html';
-              }, 2000);
+            if (e.key === "Enter" || e.key === " ") {
+              proceedToCardPlay("keydown");
             }
           });
         } else {

@@ -219,7 +219,7 @@
       });
     }
   </script>
-  <script src="core.js"></script>
+  <script src="js/core.js"></script>
   <script>
     console.log('[Con-Cardplay] Loaded at', new Date().toLocaleString());
     window.gameUtils = window.gameUtils || {};
@@ -254,6 +254,244 @@
       localStorage.setItem("gameLogs", JSON.stringify(logs));
       console.log(logEntry, data || '');
     }
+    function conCardplayPrettyTerritory(id) {
+      if (!id) return "";
+      if (window.gameUtils && typeof window.gameUtils.formatTerritoryDisplayName === "function") {
+        return window.gameUtils.formatTerritoryDisplayName(id);
+      }
+      return String(id).replace(/_/g, " ").replace(/\b\w/g, function (ch) {
+        return ch.toUpperCase();
+      });
+    }
+    function conCardplayPrettyCardName(card) {
+      if (!card) return "";
+      var c = String(card).toLowerCase();
+      if (c === "wildcard1" || c === "wildcard2") return "Wildcard";
+      return conCardplayPrettyTerritory(card);
+    }
+    function prependConCardplayCombatLog(lines) {
+      if (!window.gameState || !Array.isArray(lines) || !lines.length) return;
+      if (!Array.isArray(window.gameState.risqueCombatLogTail)) {
+        window.gameState.risqueCombatLogTail = [];
+      }
+      var i;
+      for (i = lines.length - 1; i >= 0; i -= 1) {
+        window.gameState.risqueCombatLogTail.unshift({
+          text: String(lines[i]),
+          kind: "cardplay"
+        });
+      }
+      while (window.gameState.risqueCombatLogTail.length > 50) {
+        window.gameState.risqueCombatLogTail.pop();
+      }
+    }
+    /** Build TV/public mirror lines for confirmed card actions (phase con-cardplay). */
+    function buildConCardplayConfirmMirror(actions, playerName) {
+      var primaryParts = [];
+      var reportParts = [];
+      var TN = playerName || "Player";
+      var bookCardIds = null;
+      var bookLogLines = [];
+      (actions || []).forEach(function (action) {
+        if (!action) return;
+        if (action.action === "book") {
+          primaryParts.push(TN + " plays Book.");
+          if (action.cards && action.cards.length) {
+            bookCardIds = action.cards.map(function (c) {
+              return c && c.card ? String(c.card).toLowerCase() : "";
+            }).filter(Boolean);
+          }
+          (action.effects || []).forEach(function (eff) {
+            var terr = conCardplayPrettyTerritory(eff.territory);
+            if (eff.action === "add_troops") {
+              bookLogLines.push(TN + " adds two troops to " + terr + ".");
+            } else if (eff.action === "remove_troops") {
+              bookLogLines.push(terr + " loses two troops.");
+            } else if (eff.action === "acquire") {
+              bookLogLines.push(TN + " played and acquired " + terr + ".");
+            } else if (eff.action === "declined") {
+              bookLogLines.push(terr + ": Declined.");
+            } else if (eff.action === "no_effect") {
+              bookLogLines.push(terr + ": No effect.");
+            }
+          });
+          bookLogLines.push("Ten troops added to the bank.");
+        } else if (action.action === "aerial_attack") {
+          primaryParts.push(TN + " plays Wildcard.");
+          reportParts.push("Aerial attack enabled this turn.");
+        } else {
+          var tid =
+            action.territory != null && action.territory !== ""
+              ? action.territory
+              : action.cards && action.cards[0]
+                ? action.cards[0].card
+                : "";
+          if (action.action === "add_troops") {
+            var c0 = action.cards && action.cards[0];
+            var cl = c0 ? conCardplayPrettyCardName(c0.card) : conCardplayPrettyTerritory(tid);
+            primaryParts.push(TN + " plays " + cl + ".");
+            reportParts.push(TN + " adds two troops to " + conCardplayPrettyTerritory(tid) + ".");
+          } else if (action.action === "remove_troops") {
+            var c1 = action.cards && action.cards[0];
+            var cl1 = c1 ? conCardplayPrettyCardName(c1.card) : conCardplayPrettyTerritory(tid);
+            primaryParts.push(TN + " plays " + cl1 + ".");
+            reportParts.push(conCardplayPrettyTerritory(tid) + " loses two troops.");
+          } else if (action.action === "acquire") {
+            var c2 = action.cards && action.cards[0];
+            var cl2 = c2 ? conCardplayPrettyCardName(c2.card) : conCardplayPrettyTerritory(tid);
+            primaryParts.push(TN + " plays " + cl2 + ".");
+            reportParts.push(TN + " played and acquired " + conCardplayPrettyTerritory(tid) + ".");
+          } else if (action.action === "declined") {
+            var c3 = action.cards && action.cards[0];
+            var cl3 = c3 ? conCardplayPrettyCardName(c3.card) : "Card";
+            primaryParts.push(TN + " plays " + cl3 + ".");
+            reportParts.push(conCardplayPrettyTerritory(tid) + ": Declined.");
+          } else if (action.action === "no_effect") {
+            var c4 = action.cards && action.cards[0];
+            var cl4 = c4 ? conCardplayPrettyCardName(c4.card) : conCardplayPrettyTerritory(tid);
+            primaryParts.push(TN + " plays " + cl4 + ".");
+            reportParts.push(conCardplayPrettyTerritory(tid) + ": No effect.");
+          }
+        }
+      });
+      var hasBookCards = bookCardIds && bookCardIds.length > 0;
+      return {
+        primary: primaryParts.join("\n"),
+        report: reportParts.join("\n"),
+        bookCardIds: hasBookCards ? bookCardIds : null,
+        bookLogLines: bookLogLines.length ? bookLogLines : null
+      };
+    }
+    function isPublicBookMapTerritory(name) {
+      var n = String(name || "").toLowerCase();
+      return n && n !== "wildcard1" && n !== "wildcard2";
+    }
+    function troopSnapshotForPublicBook(gs) {
+      var m = {};
+      if (!gs || !gs.players) return m;
+      gs.players.forEach(function (p) {
+        (p.territories || []).forEach(function (t) {
+          if (t && t.name) m[t.name] = { owner: p.name, troops: Number(t.troops) || 0 };
+        });
+      });
+      return m;
+    }
+    function territoryVoiceUpperForPublicBook(name) {
+      if (window.gameUtils && typeof window.gameUtils.formatTerritoryDisplayName === "function") {
+        return String(window.gameUtils.formatTerritoryDisplayName(name || "")).toUpperCase();
+      }
+      return conCardplayPrettyTerritory(name).toUpperCase();
+    }
+    /** Ordered steps for public TV: reverse-walk effects from final board to get from/to troop counts. */
+    function buildPublicBookProcessingPayload(bookAction, playerName, gs) {
+      if (!bookAction || bookAction.action !== "book" || !gs) return null;
+      var TN = String(playerName || gs.currentPlayer || "Player").toUpperCase();
+      var effects = bookAction.effects || [];
+      var m = troopSnapshotForPublicBook(gs);
+      var steps = [];
+      var i;
+      for (i = effects.length - 1; i >= 0; i--) {
+        var e = effects[i];
+        var tid = e.territory;
+        var mapTid = isPublicBookMapTerritory(tid) ? tid : null;
+        var step = {
+          effect: e.action,
+          mapTerritory: mapTid,
+          voice: "",
+          troopsFrom: 0,
+          troopsTo: 0,
+          animateTroops: false
+        };
+        if (e.action === "add_troops") {
+          if (!mapTid || !m[mapTid]) continue;
+          var toAdd = m[mapTid].troops;
+          m[mapTid].troops = Math.max(0, toAdd - 2);
+          var fromAdd = m[mapTid].troops;
+          step.troopsFrom = fromAdd;
+          step.troopsTo = toAdd;
+          step.animateTroops = fromAdd !== toAdd;
+          step.voice = TN + " ADDS 2 TROOPS TO " + territoryVoiceUpperForPublicBook(mapTid);
+        } else if (e.action === "remove_troops") {
+          if (!mapTid || !m[mapTid]) continue;
+          var toRm = m[mapTid].troops;
+          m[mapTid].troops = toRm + 2;
+          var fromRm = m[mapTid].troops;
+          step.troopsFrom = fromRm;
+          step.troopsTo = toRm;
+          step.animateTroops = fromRm !== toRm;
+          step.voice = TN + " REMOVES 2 TROOPS FROM " + territoryVoiceUpperForPublicBook(mapTid);
+        } else if (e.action === "acquire") {
+          if (!mapTid || !m[mapTid]) continue;
+          var toAcq = m[mapTid].troops;
+          var defTroops = Number(e.troops) || 1;
+          m[mapTid] = { owner: e.owner, troops: defTroops };
+          step.troopsFrom = defTroops;
+          step.troopsTo = toAcq;
+          step.animateTroops = defTroops !== toAcq;
+          step.voice = TN + " ACQUIRED " + territoryVoiceUpperForPublicBook(mapTid);
+        } else if (e.action === "declined") {
+          var labD = mapTid ? territoryVoiceUpperForPublicBook(mapTid) : conCardplayPrettyCardName(tid).toUpperCase();
+          step.voice = TN + " DECLINED TO PROCESS " + labD;
+          if (mapTid && m[mapTid]) {
+            var td = m[mapTid].troops;
+            step.troopsFrom = step.troopsTo = td;
+          }
+        } else if (e.action === "no_effect") {
+          var labN = mapTid ? territoryVoiceUpperForPublicBook(mapTid) : String(tid || "").toUpperCase();
+          step.voice = TN + " — NO EFFECT FOR " + labN;
+          if (mapTid && m[mapTid]) {
+            var tn0 = m[mapTid].troops;
+            step.troopsFrom = step.troopsTo = tn0;
+          }
+        } else {
+          continue;
+        }
+        steps.unshift(step);
+      }
+      if (!steps.length) return null;
+      return { seq: Date.now(), playerName: playerName, steps: steps };
+    }
+    function applyConCardplayPublicMirror(primary, report, bookCardIds, bookLogLines, bookActionOpt, mirrorPlayerName) {
+      if (!window.gameState) return;
+      window.gameState.risquePublicCardplayPrimary = primary != null ? String(primary) : "";
+      window.gameState.risquePublicCardplayReport = report != null ? String(report) : "";
+      if (Array.isArray(bookCardIds) && bookCardIds.length > 0) {
+        window.gameState.risquePublicCardplayBookCards = bookCardIds.map(function (c) {
+          return String(c || "").toLowerCase();
+        });
+      } else {
+        delete window.gameState.risquePublicCardplayBookCards;
+        delete window.gameState.risquePublicBookProcessing;
+      }
+      if (
+        Array.isArray(bookCardIds) &&
+        bookCardIds.length > 0 &&
+        bookActionOpt &&
+        bookActionOpt.action === "book"
+      ) {
+        var payload = buildPublicBookProcessingPayload(
+          bookActionOpt,
+          mirrorPlayerName != null ? mirrorPlayerName : window.gameState.currentPlayer,
+          window.gameState
+        );
+        if (payload && payload.steps && payload.steps.length) {
+          window.gameState.risquePublicBookProcessing = payload;
+        } else {
+          delete window.gameState.risquePublicBookProcessing;
+        }
+      }
+      if (Array.isArray(bookLogLines) && bookLogLines.length > 0) {
+        prependConCardplayCombatLog(bookLogLines);
+      }
+      try {
+        localStorage.setItem("gameState", JSON.stringify(window.gameState));
+      } catch (eMir) {
+        logToStorage("applyConCardplayPublicMirror save failed", { error: String(eMir) });
+      }
+    }
+    function clearConCardplayPublicMirror() {
+      applyConCardplayPublicMirror("", "", null, null, null, null);
+    }
     function cardplayInit() {
       logToStorage('Starting cardplayInit');
       let canvasWrapper = document.getElementById("canvas");
@@ -281,8 +519,20 @@
       if (!gameState || !gameState.players || !gameState.currentPlayer) {
         logToStorage('Invalid game state');
         window.gameUtils.showError("Invalid game state. Redirecting to launch.");
-        setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
+        setTimeout(() => { window.location.href = 'index.html'; }, 2000);
         return;
+      }
+      // Conquest card play always runs income next; stale aerial flags (e.g. from wildcards) skipped con-income.
+      if (window.gameUtils && typeof window.gameUtils.setAerialAttackUsesRemaining === "function") {
+        window.gameUtils.setAerialAttackUsesRemaining(window.gameState, 0);
+      } else {
+        window.gameState.aerialAttackEligible = false;
+      }
+      window.gameState.aerialAttack = false;
+      try {
+        localStorage.setItem("gameState", JSON.stringify(window.gameState));
+      } catch (e) {
+        logToStorage("Could not persist aerialAttack clear", { error: String(e) });
       }
       initialGameState = JSON.parse(JSON.stringify(gameState));
       logToStorage('Game state copied', { currentPlayer: gameState.currentPlayer });
@@ -290,7 +540,7 @@
       if (!currentPlayer) {
         logToStorage('Current player not found');
         window.gameUtils.showError("Current player not found. Redirecting to launch.");
-        setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
+        setTimeout(() => { window.location.href = 'index.html'; }, 2000);
         return;
       }
       currentPlayer.cards = currentPlayer.cards.map(card => {
@@ -408,16 +658,7 @@
       return currentPlayer.cards.filter(card => !playedCardNames.some(pc => pc.id === card.id));
     }
     function canFormValidBook(cards) {
-      if (cards.length < 3) return false;
-      const types = cards.map(card => window.gameUtils.cardTypes[card.name] || 'wildcard').filter(t => t);
-      const nonWildcards = types.filter(t => t !== 'wildcard');
-      const wildcards = types.length - nonWildcards.length;
-      if (nonWildcards.length === 0) return wildcards >= 3;
-      const uniqueTypes = [...new Set(nonWildcards)];
-      return (
-        (uniqueTypes.length === 1 && nonWildcards.length + wildcards >= 3) ||
-        (uniqueTypes.length >= 2 && nonWildcards.length + wildcards >= 3)
-      );
+      return window.gameUtils.canFormValidRisqueBook(cards);
     }
     function willEliminatePlayer(owner, territory) {
       if (!owner) return false;
@@ -500,8 +741,10 @@
       }
       const cardNames = selectedCards.map(sc => sc.card);
       if (!validateBook(cardNames)) {
-        errorText.textContent = 'Invalid book (must be same type or one of each)';
-        isBookSelectionMode = false;
+        errorText.textContent =
+          'Warning: Not a valid set. You need 3 matching unit types (infantry, cavalry, or artillery), or one of each type. Wildcards count as any.';
+        errorText.classList.add('cardplay-inline-error--warn');
+        isBookSelectionMode = true;
         selectedCards = [];
         document.querySelectorAll('.card').forEach(card => card.classList.remove('selected'));
         checkCardStatus();
@@ -869,7 +1112,12 @@
         await processIndividualCardEffect(card, territory.toLowerCase(), cardId);
       } else if (action === 'aerial') {
         if (window.isResetting) return;
-        window.gameState.aerialAttack = true;
+        if (window.gameUtils && typeof window.gameUtils.addAerialAttackUses === "function") {
+          window.gameUtils.addAerialAttackUses(window.gameState, 1);
+        } else {
+          window.gameState.aerialAttackEligible = true;
+        }
+        window.gameState.aerialAttack = false;
         summaryMessages.push('Wildcard: Aerial Attack enabled - Pending');
         playedCardData.action = 'aerial_attack';
         playedCards.push(playedCardData);
@@ -968,20 +1216,26 @@
         }
       });
       if (currentPlayer.cardCount > 4) {
-        document.getElementById('error').textContent = `You have ${currentPlayer.cardCount} cards. Must play/dump to 4 or fewer.`;
+        var errO = document.getElementById('error');
+        if (errO) {
+          var keepInv = /not a valid set|invalid book/i.test(String(errO.textContent || ''));
+          if (!keepInv) {
+            errO.textContent = `You have ${currentPlayer.cardCount} cards. Must play/dump to 4 or fewer.`;
+            errO.classList.remove('cardplay-inline-error--warn');
+          } else {
+            errO.classList.add('cardplay-inline-error--warn');
+          }
+        }
       }
     }
     function validateBook(cards) {
-      if (cards.length !== 3) return false;
-      const types = cards.map(card => window.gameUtils.cardTypes[card] || 'wildcard').filter(t => t);
-      const nonWildcards = types.filter(t => t !== 'wildcard');
-      const wildcards = types.length - nonWildcards.length;
-      if (nonWildcards.length === 0) return wildcards >= 3;
-      const uniqueTypes = [...new Set(nonWildcards)];
-      return (
-        (uniqueTypes.length === 1 && nonWildcards.length + wildcards >= 3) ||
-        (uniqueTypes.length >= 2 && nonWildcards.length + wildcards >= 3)
-      );
+      if (!cards || cards.length !== 3) return false;
+      const ids = cards
+        .map(function (c) {
+          return typeof c === 'string' ? c : c && c.name;
+        })
+        .filter(Boolean);
+      return ids.length === 3 && window.gameUtils.isValidRisqueThreeCardSet(ids);
     }
     function handlePlayCard() {
       if (processingBook) {
@@ -1046,6 +1300,7 @@
         currentPlayer.cardCount = currentPlayer.cards.length;
       }
       localStorage.setItem('gameState', JSON.stringify(window.gameState));
+      clearConCardplayPublicMirror();
       logToStorage('Reset card play phase');
       loadCards();
       updateSummaryDisplay();
@@ -1121,9 +1376,20 @@
             window.gameState.cardplayConquered = false;
             localStorage.setItem('gameState', JSON.stringify(window.gameState));
             logToStorage('Book effects processed, player removed', { effects: bookPlayedCard.effects, removedPlayer: owner });
+            {
+              const mirElimBook = buildConCardplayConfirmMirror([bookPlayedCard], currentPlayer.name);
+              applyConCardplayPublicMirror(
+                mirElimBook.primary,
+                mirElimBook.report,
+                mirElimBook.bookCardIds,
+                mirElimBook.bookLogLines,
+                bookPlayedCard,
+                currentPlayer.name
+              );
+            }
             checkCardStatus();
             document.getElementById('ui-overlay').classList.add('fade-out');
-            setTimeout(() => { window.location.href = 'conquer.html'; }, 2000);
+            setTimeout(() => { window.location.href = 'game.html?phase=conquer'; }, 2000);
             return;
           }
         } else {
@@ -1131,6 +1397,7 @@
           playedCardData.action = 'acquire';
           playedCardData.owner = owner;
           playedCardData.troops = ownerTerritory.troops;
+          playedCardData.territory = territory;
           localStorage.setItem('gameState', JSON.stringify(window.gameState));
           window.gameUtils.renderTerritories(territory, window.gameState);
           logToStorage('Territory acquired, player eliminated', { territory, from: owner, to: currentPlayer.name });
@@ -1143,9 +1410,20 @@
           const popup = document.getElementById('popup');
           if (popup) popup.style.display = 'none';
           updateSummaryDisplay();
+          {
+            const mirElimInd = buildConCardplayConfirmMirror([playedCardData], currentPlayer.name);
+            applyConCardplayPublicMirror(
+              mirElimInd.primary,
+              mirElimInd.report,
+              mirElimInd.bookCardIds,
+              mirElimInd.bookLogLines,
+              null,
+              null
+            );
+          }
           checkCardStatus();
           document.getElementById('ui-overlay').classList.add('fade-out');
-          setTimeout(() => { window.location.href = 'conquer.html'; }, 2000);
+          setTimeout(() => { window.location.href = 'game.html?phase=conquer'; }, 2000);
           return;
         }
       }
@@ -1156,7 +1434,7 @@
           currentPlayer.bankValue = (currentPlayer.bankValue || 0) + 10;
           summaryMessages.push('Book: 10 troops added to BANK - Confirmed');
         } else if (action.action === 'aerial_attack') {
-          window.gameState.aerialAttack = true;
+          window.gameState.aerialAttack = false;
           summaryMessages.push('Wildcard: Aerial Attack enabled - Confirmed');
         } else if (action.action === 'add_troops') {
           summaryMessages.push(`${action.territory.toUpperCase()}: +2 troops (${currentPlayer.territories.find(t => t.name === action.territory)?.troops.toString().padStart(3, '0') || '000'}) - Confirmed`);
@@ -1176,6 +1454,18 @@
         }
       });
       hasConfirmed = true;
+      {
+        const mir = buildConCardplayConfirmMirror(unconfirmedActions, currentPlayer.name);
+        const bookForPublic = unconfirmedActions.find(a => a.action === "book") || null;
+        applyConCardplayPublicMirror(
+          mir.primary,
+          mir.report,
+          mir.bookCardIds,
+          mir.bookLogLines,
+          bookForPublic,
+          currentPlayer.name
+        );
+      }
       updateSummaryDisplay();
       checkCardStatus();
       localStorage.setItem('gameState', JSON.stringify(window.gameState));
@@ -1193,9 +1483,9 @@
         return;
       }
       try {
-        window.gameState.phase = window.gameState.aerialAttack ? 'deploy' : 'con-income';
+        window.gameState.phase = window.gameState.aerialAttackEligible ? 'deploy' : 'con-income';
         localStorage.setItem('gameState', JSON.stringify(window.gameState));
-        const nextPage = window.gameState.aerialAttack ? 'deploy2.html' : 'con-income.html';
+        const nextPage = window.gameState.aerialAttackEligible ? 'phases/deploy2.html' : 'con-income.html';
         logToStorage('Navigating to ' + nextPage);
         document.getElementById('ui-overlay').classList.add('fade-out');
         setTimeout(() => {
@@ -1204,7 +1494,7 @@
       } catch (e) {
         console.error('[Con-Cardplay] Failed to proceed:', e);
         logToStorage('Failed to proceed', { error: e.message });
-        window.gameUtils.showError('Failed to navigate to ' + (window.gameState.aerialAttack ? 'deploy2.html' : 'con-income.html'));
+        window.gameUtils.showError('Failed to navigate to ' + (window.gameState.aerialAttackEligible ? 'phases/deploy2.html' : 'con-income.html'));
       }
     }
     function showPopup(message, options = null, showInput = false, notification = false) {
@@ -1270,7 +1560,7 @@
         if (!gameState) {
           logToStorage('No game state found');
           window.gameUtils.showError('No game state found. Redirecting to launch.');
-          setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
+          setTimeout(() => { window.location.href = 'index.html'; }, 2000);
           return;
         }
         window.gameState = gameState;

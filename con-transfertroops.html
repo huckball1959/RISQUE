@@ -166,11 +166,17 @@
     <div class="ui-overlay" id="ui-overlay"></div>
     <div id="error" class="error"></div>
   </div>
-  <script src="core.js"></script>
+  <script src="js/core.js"></script>
   <script>
     console.log('[TroopTransfer] Loaded at', new Date().toLocaleString());
     let currentPlayer = null;
     let transferCompleted = false;
+    /** Combat already moved the minimum onto the capture; this page only moves *additional* troops (min 1 if any). */
+    function maxAdditionalTroopsMovable(gs) {
+      if (!gs || !gs.attackingTerritory) return 0;
+      var t = Number(gs.attackingTerritory.troops) || 0;
+      return Math.max(0, t - 1);
+    }
 
     function logToStorage(message, data) {
       const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
@@ -189,25 +195,39 @@
                      window.gameState.players.length >= 1;
       if (!isValid) {
         logToStorage('Invalid game state', window.gameState);
-        window.gameUtils.showError('Invalid game state. Redirecting to launch.');
-        setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
+        window.gameUtils.showError('Invalid game state. Redirecting to main menu.');
+        setTimeout(() => { window.location.href = 'index.html'; }, 2000);
         return false;
       }
       currentPlayer = window.gameState.players.find(p => p.name === window.gameState.currentPlayer);
       if (!currentPlayer) {
         logToStorage('Current player not found');
-        window.gameUtils.showError('Current player not found. Redirecting to launch.');
-        setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
+        window.gameUtils.showError('Current player not found. Redirecting to main menu.');
+        setTimeout(() => { window.location.href = 'index.html'; }, 2000);
         return false;
+      }
+      /* Deploy updates territory troop counts on the player object; gameState snapshots may be stale. */
+      const gs = window.gameState;
+      if (gs.attackingTerritory && gs.attackingTerritory.name) {
+        const atLive = currentPlayer.territories.find(t => t.name === gs.attackingTerritory.name);
+        if (atLive) {
+          gs.attackingTerritory = { name: atLive.name, troops: Number(atLive.troops) || 0 };
+        }
+      }
+      if (gs.acquiredTerritory && gs.acquiredTerritory.name) {
+        const acLive = currentPlayer.territories.find(t => t.name === gs.acquiredTerritory.name);
+        if (acLive) {
+          gs.acquiredTerritory = { name: acLive.name, troops: Number(acLive.troops) || 0 };
+        }
       }
       if (window.gameState.conqueredThisTurn === undefined) {
         logToStorage('conqueredThisTurn undefined, defaulting to false');
         window.gameState.conqueredThisTurn = false;
       }
       if (!window.gameState.conqueredThisTurn) {
-        logToStorage('No conquest this turn, redirecting to con-cardplay.html');
+        logToStorage('No conquest this turn, redirecting to runtime cardplay');
         window.gameUtils.showError('No troops to transfer. Redirecting to card play.');
-        setTimeout(() => { window.location.href = 'con-cardplay.html'; }, 2000);
+        setTimeout(() => { window.location.href = 'game.html?phase=cardplay'; }, 2000);
         return false;
       }
       if (!window.gameState.attackingTerritory || !window.gameState.acquiredTerritory) {
@@ -216,7 +236,7 @@
           acquiredTerritory: window.gameState.acquiredTerritory
         });
         window.gameUtils.showError('Missing attack data. Redirecting to launch.');
-        setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
+        setTimeout(() => { window.location.href = 'index.html'; }, 2000);
         return false;
       }
       if (!currentPlayer.territories.some(t => t.name === window.gameState.attackingTerritory.name) ||
@@ -227,7 +247,7 @@
           player: currentPlayer.name
         });
         window.gameUtils.showError('Invalid territory ownership. Redirecting to launch.');
-        setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
+        setTimeout(() => { window.location.href = 'index.html'; }, 2000);
         return false;
       }
       const adjacencyMap = window.gameUtils.getAdjacencyMap ? window.gameUtils.getAdjacencyMap() : {};
@@ -237,17 +257,16 @@
           acquiredTerritory: window.gameState.acquiredTerritory.name
         });
         window.gameUtils.showError('Territories not adjacent. Redirecting to launch.');
-        setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
+        setTimeout(() => { window.location.href = 'index.html'; }, 2000);
         return false;
       }
-      if (window.gameState.attackingTerritory.troops <= 1) {
-        logToStorage('Not enough troops in attacking territory', {
-          attackingTerritory: window.gameState.attackingTerritory.name,
-          troops: window.gameState.attackingTerritory.troops
+      var maxAdd = maxAdditionalTroopsMovable(window.gameState);
+      if (maxAdd < 1) {
+        logToStorage('No optional troops to move (minimum already placed or only garrison left); skipping transfer UI', {
+          attackingTerritory: window.gameState.attackingTerritory && window.gameState.attackingTerritory.name,
+          troops: window.gameState.attackingTerritory && window.gameState.attackingTerritory.troops
         });
-        window.gameUtils.showError('Not enough troops to transfer. Redirecting to launch.');
-        setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
-        return false;
+        transferCompleted = true;
       }
       return true;
     }
@@ -265,7 +284,7 @@
         } else {
           logToStorage('Canvas wrapper not found');
           window.gameUtils.showError('Canvas wrapper not found. Redirecting to launch.');
-          setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
+          setTimeout(() => { window.location.href = 'index.html'; }, 2000);
           return;
         }
       }
@@ -284,6 +303,10 @@
       logToStorage('UI overlay rendered', { player: currentPlayer.name, attackingTerritory: attackingTerritoryName, acquiredTerritory: acquiredTerritoryName });
       const transferButton = document.getElementById('transfer-troops');
       const proceedButton = document.getElementById('proceed');
+      if (transferCompleted && proceedButton) {
+        proceedButton.disabled = false;
+        if (transferButton) transferButton.disabled = true;
+      }
       if (transferButton) {
         transferButton.addEventListener('click', handleTroopTransfer);
         logToStorage('Transfer Troops button initialized');
@@ -313,11 +336,16 @@
         logToStorage('Troop transfer attempted after completion');
         return;
       }
-      const maxTroops = window.gameState.attackingTerritory.troops - 1;
-      const minTroops = window.gameState.minTroopsToTransfer || 3;
+      const maxTroops = maxAdditionalTroopsMovable(window.gameState);
+      const minTroops = 1;
       if (maxTroops < minTroops) {
-        window.gameUtils.showError(`Not enough troops in ${window.gameState.attackingTerritory.name.replace(/_/g, ' ').toUpperCase()}.`);
-        logToStorage('Not enough troops to transfer', { troops: window.gameState.attackingTerritory.troops, minTroops });
+        transferCompleted = true;
+        const pb = document.getElementById('proceed');
+        const tb = document.getElementById('transfer-troops');
+        if (pb) pb.disabled = false;
+        if (tb) tb.disabled = true;
+        window.gameUtils.showError('');
+        logToStorage('No additional troops to move; use Proceed', { troops: window.gameState.attackingTerritory.troops });
         return;
       }
       showPopup(`Transfer troops from ${window.gameState.attackingTerritory.name.replace(/_/g, ' ').toUpperCase()} to ${window.gameState.acquiredTerritory.name.replace(/_/g, ' ').toUpperCase()} (min ${minTroops}, max ${maxTroops})`, [
@@ -382,7 +410,7 @@
       document.getElementById('popup-message').textContent = message;
       const popupInput = document.getElementById('popup-input');
       popupInput.style.display = showInput ? 'block' : 'none';
-      popupInput.value = showInput ? window.gameState.minTroopsToTransfer || 3 : '';
+      popupInput.value = showInput ? '1' : '';
       if (error) {
         const errorDiv = document.createElement('div');
         errorDiv.textContent = error;
@@ -397,20 +425,51 @@
     }
 
     function handleProceed() {
-      if (!transferCompleted && window.gameState.conqueredThisTurn) {
+      var gs = window.gameState;
+      var proceedTo = gs.risqueConquestTransferProceedTo;
+      if (proceedTo === 'attack') {
+        if (!transferCompleted && gs.conqueredThisTurn) {
+          window.gameUtils.showError('Complete troop transfer first.');
+          logToStorage('Proceed attempted before transfer (finale → attack)');
+          return;
+        }
+        gs.phase = 'attack';
+        gs.attackPhase = 'attack';
+        gs.attackingTerritory = null;
+        gs.acquiredTerritory = null;
+        gs.minTroopsToTransfer = 0;
+        gs.conqueredThisTurn = false;
+        delete gs.risqueConquestTransferProceedTo;
+        delete gs.risqueConquestChainActive;
+        try {
+          localStorage.setItem('gameState', JSON.stringify(gs));
+        } catch (eSave) {
+          logToStorage('Save before attack failed', { error: eSave.message || String(eSave) });
+        }
+        logToStorage('Conquest troop transfer finished; navigating to attack', { phase: gs.phase });
+        document.getElementById('ui-overlay').classList.add('fade-out');
+        setTimeout(function () {
+          window.location.href = 'game.html?phase=attack';
+        }, 2000);
+        return;
+      }
+      if (!transferCompleted && gs.conqueredThisTurn) {
         window.gameUtils.showError('Complete troop transfer first.');
         logToStorage('Proceed attempted before transfer');
         return;
       }
-      window.gameState.phase = 'con-cardplay';
-      window.gameState.attackingTerritory = null;
-      window.gameState.acquiredTerritory = null;
-      window.gameState.minTroopsToTransfer = 0;
-      window.gameState.conqueredThisTurn = false;
-      localStorage.setItem('gameState', JSON.stringify(window.gameState));
-      logToStorage('Navigating to con-cardplay.html', { phase: window.gameState.phase });
+      gs.phase = 'con-cardplay';
+      gs.attackingTerritory = null;
+      gs.acquiredTerritory = null;
+      gs.minTroopsToTransfer = 0;
+      gs.conqueredThisTurn = false;
+      delete gs.risqueConquestTransferProceedTo;
+      localStorage.setItem('gameState', JSON.stringify(gs));
+      logToStorage('Navigating to runtime cardplay', { phase: gs.phase });
       document.getElementById('ui-overlay').classList.add('fade-out');
-      setTimeout(() => { window.location.href = 'con-cardplay.html'; }, 2000);
+      setTimeout(function () {
+        window.location.href = 'game.html?phase=cardplay';
+      }, 2000);
     }
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -419,7 +478,7 @@
         if (!gameState) {
           logToStorage('No game state found');
           window.gameUtils.showError('No game state found. Redirecting to launch.');
-          setTimeout(() => { window.location.href = 'launch.html'; }, 2000);
+          setTimeout(() => { window.location.href = 'index.html'; }, 2000);
           return;
         }
         window.gameState = gameState;
