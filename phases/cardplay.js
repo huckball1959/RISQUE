@@ -2348,65 +2348,68 @@
     async function handleReset() {
       clearCardplayLocalPrompt();
       window.isResetting = true;
-      if (!initialGameState || !Array.isArray(initialGameState.players)) {
-        window.isResetting = false;
-        return;
-      }
-      window.gameState.players = JSON.parse(JSON.stringify(initialGameState.players));
-      window.gameState.continentSnapshot = JSON.parse(JSON.stringify(initialGameState.continentSnapshot || {}));
-      if (initialGameState.continentsSnapshot != null) {
-        window.gameState.continentsSnapshot = JSON.parse(JSON.stringify(initialGameState.continentsSnapshot));
-      }
-      ['bookPlayedThisTurn', 'conqueredThisTurn', 'cardEarnedViaCardplay'].forEach(function (k) {
-        if (Object.prototype.hasOwnProperty.call(initialGameState, k)) {
-          window.gameState[k] = initialGameState[k];
-        }
-      });
-      if (window.gameUtils && typeof window.gameUtils.setAerialAttackUsesRemaining === "function") {
-        window.gameUtils.setAerialAttackUsesRemaining(window.gameState, 0);
-      } else {
-        window.gameState.aerialAttackEligible = false;
-      }
-      window.gameState.aerialAttack = false;
-      delete window.gameState.risquePublicCardplayRecap;
-      delete window.gameState.risquePublicCardplayRecapAckRequiredSeq;
-      delete window.gameState.risqueCardplayTvRecapPublished;
-      window.gameState.risqueCardplaySuppressPublicSpectator = true;
-      playedCards = [];
-      recapMirrorSentForCommit = false;
-      summaryMessages = [];
-      selectedCards = [];
-      isBookSelectionMode = false;
-      isIndividualSelectionMode = false;
-      processingBook = false;
-      currentBookCardIndex = -1;
-      hasConfirmed = false;
-      pendingElimination = null;
-      document.querySelectorAll('.card').forEach(card => {
-        card.classList.remove('selected', 'played', 'processing');
-      });
-      setCardplayError('Actions reset');
-      if (isCardplayHudCompact()) {
-        rebuildCardplayCompactHand();
-      }
-      loadCards();
-      updateSummaryDisplay();
-      checkCardStatus();
       try {
-        window.gameUtils.renderTerritories(null, window.gameState);
-        window.gameUtils.renderStats(window.gameState);
-      } catch (eR) {
-        logToStorage('Reset render error: ' + (eR.message || String(eR)));
+        if (!initialGameState || !Array.isArray(initialGameState.players)) {
+          return;
+        }
+        window.gameState.players = JSON.parse(JSON.stringify(initialGameState.players));
+        window.gameState.continentSnapshot = JSON.parse(JSON.stringify(initialGameState.continentSnapshot || {}));
+        if (initialGameState.continentsSnapshot != null) {
+          window.gameState.continentsSnapshot = JSON.parse(JSON.stringify(initialGameState.continentsSnapshot));
+        }
+        ['bookPlayedThisTurn', 'conqueredThisTurn', 'cardEarnedViaCardplay'].forEach(function (k) {
+          if (Object.prototype.hasOwnProperty.call(initialGameState, k)) {
+            window.gameState[k] = initialGameState[k];
+          }
+        });
+        if (window.gameUtils && typeof window.gameUtils.setAerialAttackUsesRemaining === "function") {
+          window.gameUtils.setAerialAttackUsesRemaining(window.gameState, 0);
+        } else {
+          window.gameState.aerialAttackEligible = false;
+        }
+        window.gameState.aerialAttack = false;
+        delete window.gameState.risquePublicCardplayRecap;
+        delete window.gameState.risquePublicCardplayRecapAckRequiredSeq;
+        delete window.gameState.risqueCardplayTvRecapPublished;
+        window.gameState.risqueCardplaySuppressPublicSpectator = true;
+        window.__risqueCardplayHostIncomeOnly = false;
+        playedCards = [];
+        recapMirrorSentForCommit = false;
+        summaryMessages = [];
+        selectedCards = [];
+        isBookSelectionMode = false;
+        isIndividualSelectionMode = false;
+        processingBook = false;
+        currentBookCardIndex = -1;
+        hasConfirmed = false;
+        pendingElimination = null;
+        document.querySelectorAll('.card').forEach(card => {
+          card.classList.remove('selected', 'played', 'processing');
+        });
+        setCardplayError('Actions reset');
+        if (isCardplayHudCompact()) {
+          rebuildCardplayCompactHand();
+        }
+        loadCards();
+        updateSummaryDisplay();
+        checkCardStatus();
+        try {
+          window.gameUtils.renderTerritories(null, window.gameState);
+          window.gameUtils.renderStats(window.gameState);
+        } catch (eR) {
+          logToStorage('Reset render error: ' + (eR.message || String(eR)));
+        }
+        localStorage.setItem('gameState', JSON.stringify(window.gameState));
+        clearCardplayPublicSpectator();
+        captureCardplayPublicBoardSnapshot();
+        if (typeof window.risqueMirrorPushGameState === "function") {
+          window.risqueMirrorPushGameState();
+        }
+        const cp = window.gameState.players.find(p => p.name === window.gameState.currentPlayer);
+        logToStorage('Game state reset', cp ? { player: cp.name, cards: cp.cards, territories: cp.territories } : {});
+      } finally {
+        window.isResetting = false;
       }
-      localStorage.setItem('gameState', JSON.stringify(window.gameState));
-      clearCardplayPublicSpectator();
-      captureCardplayPublicBoardSnapshot();
-      if (typeof window.risqueMirrorPushGameState === "function") {
-        window.risqueMirrorPushGameState();
-      }
-      const cp = window.gameState.players.find(p => p.name === window.gameState.currentPlayer);
-      logToStorage('Game state reset', cp ? { player: cp.name, cards: cp.cards, territories: cp.territories } : {});
-      window.isResetting = false;
     }
     function playedCardIncludesTerritoryAcquire(pc) {
       if (!pc) return false;
