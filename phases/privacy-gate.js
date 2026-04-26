@@ -37,6 +37,13 @@
     return "game.html?phase=privacyGate&next=" + encodeURIComponent(target);
   }
 
+  function withHostSaveReminder(message) {
+    var base = message != null ? String(message) : "";
+    if (!base) return "Emergency save: Ctrl+S or Alt+S.";
+    if (/ctrl\+s|alt\+s/i.test(base)) return base;
+    return base + "\n\nEmergency save: Ctrl+S or Alt+S.";
+  }
+
   /**
    * @param {HTMLElement} [parent] - default document.body
    * @param {object} [opts]
@@ -118,7 +125,7 @@
       return;
     }
     mount(document.body, {
-      message: opts.message || "Continue",
+      message: withHostSaveReminder(opts.message || "Continue"),
       buttonLabel: opts.buttonLabel || "Continue",
       onContinue: onContinue,
       onLog: logFn

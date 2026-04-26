@@ -12,8 +12,15 @@
   var PUBLIC_CURSOR_MIRROR_KEY = "risquePublicCursorMirror";
   var LOG_KEY = "gameLogs";
   var LEDGER_KEY = "risqueTransitionLedger";
+  var ROUND_AUTOSAVE_KEY = "risqueRoundAutosaves";
   var MAX_LOG_ENTRIES = 250;
   var MAX_LEDGER_ENTRIES = 300;
+  var MAX_PLAYED_CARDS_GALLERY_ENTRIES = 180;
+  var PUBLIC_MIRROR_POLL_MS = 100;
+  var MAX_ROUND_AUTOSAVES = 10;
+  /** In-memory only: cleared on every reload / hard refresh; round JSON writes use File System Access API. */
+  var __risqueRoundAutosaveDirHandle = null;
+  var __risqueRoundAutosaveSetupPromptShownThisLoad = false;
   var appEl = document.getElementById("app");
   var phaseLabelEl = document.getElementById("phaseLabel");
   var stageHost = document.querySelector(".runtime-stage-host");
@@ -1140,6 +1147,11 @@
         gs.risquePlayedCardsGallery.push({ name: n });
       });
     });
+    if (gs.risquePlayedCardsGallery.length > MAX_PLAYED_CARDS_GALLERY_ENTRIES) {
+      gs.risquePlayedCardsGallery = gs.risquePlayedCardsGallery.slice(
+        gs.risquePlayedCardsGallery.length - MAX_PLAYED_CARDS_GALLERY_ENTRIES
+      );
+    }
   }
 
   function risqueRenderHostCardsPlayedPanel(gs) {
@@ -4518,6 +4530,11 @@
       s.risquePlayedCardsGallery = s.risquePlayedCardsGallery.filter(function (entry) {
         return entry && typeof entry.name === "string" && entry.name.length > 0;
       });
+      if (s.risquePlayedCardsGallery.length > MAX_PLAYED_CARDS_GALLERY_ENTRIES) {
+        s.risquePlayedCardsGallery = s.risquePlayedCardsGallery.slice(
+          s.risquePlayedCardsGallery.length - MAX_PLAYED_CARDS_GALLERY_ENTRIES
+        );
+      }
     }
     if (!s.risqueLuckyLedger || typeof s.risqueLuckyLedger !== "object") {
       s.risqueLuckyLedger = { byPlayer: {} };
@@ -4805,6 +4822,184 @@
     }
   }
 
+  function saveRoundAutosaveSnapshot(gs) {
+    if (!gs || window.risqueDisplayIsPublic) return;
+    try {
+      var row = {
+        at: Date.now(),
+        round: Number(gs.round) || 1,
+        phase: String(gs.phase || ""),
+        currentPlayer: String(gs.currentPlayer || ""),
+        state: JSON.stringify(gs)
+      };
+      var arr = tryParse(localStorage.getItem(ROUND_AUTOSAVE_KEY) || "[]");
+      if (!Array.isArray(arr)) arr = [];
+      arr.push(row);
+      if (arr.length > MAX_ROUND_AUTOSAVES) {
+        arr = arr.slice(arr.length - MAX_ROUND_AUTOSAVES);
+      }
+      localStorage.setItem(ROUND_AUTOSAVE_KEY, JSON.stringify(arr));
+    } catch (eAuto) {
+      try {
+        var fallback = tryParse(localStorage.getItem(ROUND_AUTOSAVE_KEY) || "[]");
+        if (!Array.isArray(fallback)) fallback = [];
+        fallback = fallback.slice(-3);
+        localStorage.setItem(ROUND_AUTOSAVE_KEY, JSON.stringify(fallback));
+      } catch (eAuto2) {
+        /* ignore */
+      }
+    }
+    try {
+      writeRoundAutosaveToDisk(gs);
+    } catch (eDisk) {
+      /* ignore */
+    }
+  }
+
+  function removeRoundAutosaveSetupOverlay() {
+    var el = document.getElementById("risque-round-autosave-setup");
+    if (el && el.parentNode) {
+      el.parentNode.removeChild(el);
+    }
+  }
+
+  function injectRoundAutosaveSetupStylesOnce() {
+    var sid = "risque-round-autosave-setup-style";
+    if (document.getElementById(sid)) return;
+    var s = document.createElement("style");
+    s.id = sid;
+    s.textContent =
+      "#risque-round-autosave-setup{position:fixed;inset:0;z-index:1000000;margin:0;padding:24px;" +
+      "display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.72);" +
+      "font-family:Arial,Helvetica,sans-serif;box-sizing:border-box;}" +
+      "#risque-round-autosave-setup *{box-sizing:border-box;}" +
+      "#risque-round-autosave-setup .risque-ras-card{max-width:520px;width:100%;background:#111827;" +
+      "color:#e5e7eb;border:1px solid #334155;border-radius:12px;padding:20px 22px;" +
+      "box-shadow:0 12px 40px rgba(0,0,0,0.45);}" +
+      "#risque-round-autosave-setup .risque-ras-title{font-size:20px;font-weight:bold;margin:0 0 10px;color:#fff;}" +
+      "#risque-round-autosave-setup .risque-ras-body{font-size:14px;line-height:1.45;margin:0 0 18px;color:#cbd5e1;}" +
+      "#risque-round-autosave-setup .risque-ras-actions{display:flex;flex-wrap:wrap;gap:10px;}" +
+      "#risque-round-autosave-setup button{font-size:15px;font-weight:bold;border-radius:8px;padding:10px 16px;" +
+      "cursor:pointer;border:none;}" +
+      "#risque-round-autosave-setup .risque-ras-primary{background:#2563eb;color:#fff;}" +
+      "#risque-round-autosave-setup .risque-ras-primary:hover{background:#1d4ed8;}" +
+      "#risque-round-autosave-setup .risque-ras-secondary{background:#374151;color:#e5e7eb;}" +
+      "#risque-round-autosave-setup .risque-ras-secondary:hover{background:#4b5563;}";
+    document.head.appendChild(s);
+  }
+
+  function shouldOfferRoundAutosaveSetupThisBoot() {
+    if (window.risqueDisplayIsPublic) return false;
+    if (typeof window.showDirectoryPicker !== "function") return false;
+    /* file:// often blocks directory picker; HTTPS / localhost is the supported path */
+    if (window.location.protocol === "file:") return false;
+    if (forcedPhase === "login" && (!state.players || !state.players.length)) {
+      return false;
+    }
+    return true;
+  }
+
+  function showRoundAutosaveSetupPromptOncePerLoad() {
+    if (!shouldOfferRoundAutosaveSetupThisBoot()) return;
+    if (__risqueRoundAutosaveSetupPromptShownThisLoad) return;
+    __risqueRoundAutosaveSetupPromptShownThisLoad = true;
+    if (document.getElementById("risque-round-autosave-setup")) return;
+    injectRoundAutosaveSetupStylesOnce();
+    var ov = document.createElement("div");
+    ov.id = "risque-round-autosave-setup";
+    ov.setAttribute("role", "dialog");
+    ov.setAttribute("aria-modal", "true");
+    ov.setAttribute("aria-label", "Round autosave folder");
+    ov.innerHTML =
+      '<div class="risque-ras-card">' +
+      '<p class="risque-ras-title">Set up round autosave folder</p>' +
+      '<p class="risque-ras-body">After each full round, RISQUE can save a JSON file automatically. ' +
+      "Choose a folder (for example <strong>Documents\\Risque Game Saves</strong>). " +
+      "Browsers cannot use that path without your permission. " +
+      "<strong>Every reload or hard refresh (Ctrl+F5)</strong> clears this permission for safety — " +
+      "you will be asked again to pick the folder.</p>" +
+      '<div class="risque-ras-actions">' +
+      '<button type="button" class="risque-ras-primary" id="risque-ras-choose">Choose folder…</button>' +
+      '<button type="button" class="risque-ras-secondary" id="risque-ras-skip">Not now</button>' +
+      "</div>" +
+      "</div>";
+    document.body.appendChild(ov);
+    var choose = document.getElementById("risque-ras-choose");
+    var skip = document.getElementById("risque-ras-skip");
+    if (choose) {
+      choose.addEventListener("click", function () {
+        var pickerOpts = { id: "risque-round-autosaves" };
+        window
+          .showDirectoryPicker(pickerOpts)
+          .then(function (dir) {
+            __risqueRoundAutosaveDirHandle = dir;
+            removeRoundAutosaveSetupOverlay();
+            setBoardCornerMsg("Round autosave folder set. Files save each new round.");
+            logEvent("Round autosave: folder selected");
+          })
+          .catch(function (e) {
+            if (e && e.name === "AbortError") {
+              setBoardCornerMsg("Round autosave: folder selection canceled.");
+            } else {
+              setBoardCornerMsg(
+                "Round autosave: could not use folder picker (" +
+                  (e && e.message ? e.message : "error") +
+                  ")."
+              );
+            }
+          });
+      });
+    }
+    if (skip) {
+      skip.addEventListener("click", function () {
+        removeRoundAutosaveSetupOverlay();
+        setBoardCornerMsg("Round autosave: skipped this session (in-browser backups still run).");
+        logEvent("Round autosave: folder setup skipped");
+      });
+    }
+  }
+
+  function scheduleRoundAutosaveSetupPrompt() {
+    if (!shouldOfferRoundAutosaveSetupThisBoot()) return;
+    setTimeout(function () {
+      showRoundAutosaveSetupPromptOncePerLoad();
+    }, 1500);
+  }
+
+  function writeRoundAutosaveToDisk(gs) {
+    var dir = __risqueRoundAutosaveDirHandle;
+    if (!dir || !gs) return;
+    if (typeof dir.getFileHandle !== "function") return;
+    var d = new Date();
+    var datePart = d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+    var rawName = "RISQUE  round " + (Number(gs.round) || 1) + "  " + datePart + "  " + formatRisque12HourAmPm(d);
+    var base = sanitizeRisqueSaveBasename(rawName);
+    if (!base) {
+      base = "RISQUE-round-" + String(Number(gs.round) || 1);
+    }
+    var fname = risqueSaveBasenameForFilename(base) + ".json";
+    var payload = JSON.stringify(gs, null, 2);
+    dir
+      .getFileHandle(fname, { create: true })
+      .then(function (fh) {
+        return fh.createWritable();
+      })
+      .then(function (w) {
+        var wr = w.write(payload);
+        return Promise.resolve(wr).then(function () {
+          return w.close();
+        });
+      })
+      .then(function () {
+        logEvent("Round autosave: wrote file", { file: fname });
+      })
+      .catch(function (err) {
+        logEvent("Round autosave: disk write failed", {
+          message: err && err.message ? err.message : String(err)
+        });
+      });
+  }
+
   function text(value) {
     return String(value == null ? "" : value);
   }
@@ -4910,7 +5105,10 @@
     ) {
       window.gameUtils.clearContinentalConquestRoutingOnTurnAdvance(state);
     }
-    if (nextIndex === 0) state.round += 1;
+    if (nextIndex === 0) {
+      state.round += 1;
+      saveRoundAutosaveSnapshot(state);
+    }
     state.phase = "cardplay";
     state.cardEarnedViaAttack = false;
     state.cardEarnedViaCardplay = false;
@@ -5546,6 +5744,45 @@
     return state;
   }
 
+  function triggerHostQuickSave(sourceLabel) {
+    if (window.risqueDisplayIsPublic) return;
+    var snap;
+    try {
+      snap = getActiveGameStateSnapshot();
+      saveState(snap);
+    } catch (eSnap) {
+      if (sourceLabel === "keyboard") {
+        setBoardCornerMsg("Save failed.");
+      }
+      return;
+    }
+    saveGameSnapshotToFile(snap)
+      .then(function (res) {
+        if (!res) return;
+        if (sourceLabel === "keyboard") {
+          if (res.aborted) {
+            setBoardCornerMsg("Save canceled.");
+          } else if (res.ok) {
+            setBoardCornerMsg(
+              res.usedPicker
+                ? "Game saved."
+                : "Game saved — check Downloads if your browser did not ask for a folder."
+            );
+          } else {
+            setBoardCornerMsg("Save failed.");
+          }
+        }
+        if (res.ok) {
+          logEvent("Save snapshot (" + sourceLabel + ")", { usedPicker: !!res.usedPicker });
+        }
+      })
+      .catch(function () {
+        if (sourceLabel === "keyboard") {
+          setBoardCornerMsg("Save failed.");
+        }
+      });
+  }
+
   var cornerMsgTimer = null;
   function setBoardCornerMsg(text) {
     var el = document.getElementById("risque-board-corner-msg");
@@ -5879,31 +6116,7 @@
 
     if (saveBtn) {
       saveBtn.addEventListener("click", function () {
-        try {
-          var snap = getActiveGameStateSnapshot();
-          saveState(snap);
-          saveGameSnapshotToFile(snap)
-            .then(function (res) {
-              if (!res) return;
-              if (res.aborted) {
-                setBoardCornerMsg("Save canceled.");
-              } else if (res.ok) {
-                setBoardCornerMsg(
-                  res.usedPicker
-                    ? "Game saved."
-                    : "Game saved — check Downloads if your browser did not ask for a folder."
-                );
-              } else {
-                setBoardCornerMsg("Save failed.");
-              }
-            })
-            .catch(function () {
-              setBoardCornerMsg("Save failed.");
-            });
-          logEvent("Save game (map corner)");
-        } catch (e1) {
-          setBoardCornerMsg("Save failed.");
-        }
+        triggerHostQuickSave("map corner");
       });
     }
     if (loadBtn && loadInput) {
@@ -6183,6 +6396,7 @@
     }
   }
   logEvent("Runtime boot", { phase: state.phase, currentPlayer: state.currentPlayer, round: state.round });
+  scheduleRoundAutosaveSetupPrompt();
 
   publicMirrorLastPhase = window.risqueDisplayIsPublic ? state.phase : null;
   syncPhaseDataAttr(state);
@@ -6786,12 +7000,26 @@
   });
 
   document.getElementById("btnSave").addEventListener("click", function () {
-    saveGameSnapshotToFile(state).then(function (res) {
-      if (res && res.ok) {
-        logEvent("Save snapshot (devtools)", { usedPicker: !!res.usedPicker });
-      }
-    });
+    triggerHostQuickSave("devtools");
   });
+
+  document.addEventListener(
+    "keydown",
+    function (e) {
+      if (window.risqueDisplayIsPublic) return;
+      if (!(e.ctrlKey || e.metaKey || e.altKey)) return;
+      if (e.repeat) return;
+      var key = String(e.key || "").toLowerCase();
+      if (key !== "s") return;
+      var t = e.target;
+      var tag = t && t.tagName ? String(t.tagName).toLowerCase() : "";
+      if (tag === "input" || tag === "textarea" || (t && t.isContentEditable)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      triggerHostQuickSave("keyboard");
+    },
+    true
+  );
 
   var btnReload = document.getElementById("btnReload");
   if (btnReload) {
@@ -6927,7 +7155,7 @@
       var gsPoll = tryParse(raw);
       if (!gsPoll) return;
       risquePublicMirrorGameState(gsPoll);
-    }, 25);
+    }, PUBLIC_MIRROR_POLL_MS);
   }
 
   installRisquePublicCursorMirrorTracking();
