@@ -13,6 +13,10 @@
   var LOG_KEY = "gameLogs";
   var LEDGER_KEY = "risqueTransitionLedger";
   var ROUND_AUTOSAVE_KEY = "risqueRoundAutosaves";
+  var ROUND_AUTOSAVE_PROMPT_SEEN_KEY = "risqueRoundAutosavePromptSeen";
+  var ROUND_AUTOSAVE_SESSION_COUNT_KEY = "risqueRoundAutosaveSessionCount";
+  var __risqueRoundAutosaveSawNonFirstPlayerThisSession = false;
+  var __risqueRoundAutosaveSkippedInitialFirstPlayerCycle = false;
   var MAX_LOG_ENTRIES = 250;
   var MAX_LEDGER_ENTRIES = 300;
   var MAX_PLAYED_CARDS_GALLERY_ENTRIES = 180;
@@ -20,7 +24,7 @@
   var MAX_ROUND_AUTOSAVES = 10;
   /** In-memory only: cleared on every reload / hard refresh; round JSON writes use File System Access API. */
   var __risqueRoundAutosaveDirHandle = null;
-  var __risqueRoundAutosaveSetupPromptShownThisLoad = false;
+  var __risqueRoundAutosavePickerBusy = false;
   var appEl = document.getElementById("app");
   var phaseLabelEl = document.getElementById("phaseLabel");
   var stageHost = document.querySelector(".runtime-stage-host");
@@ -49,6 +53,100 @@
   var deployKindQuery = (query.get("kind") || "").trim().toLowerCase();
   /** Set after receive-card tablet handoff so cardplay mount does not show a second handoff. */
   var skipCardplayEntryHandoff = String(query.get("postReceive") || "") === "1";
+  var POST_RECEIVE_CARDPLAY_BLACKOUT_KEY = "risquePostReceiveCardplayBlackout";
+  var POST_RECEIVE_BLACKOUT_STYLE_ID = "risque-post-receive-blackout-style";
+  var OUTGOING_NAV_BLACKOUT_ID = "risque-outgoing-nav-blackout";
+  var VT_SUPPRESS_ONE_SHOT_ID = "risque-vt-suppress-one-shot";
+
+  function injectPostReceiveBlackoutStylesOnce() {
+    if (document.getElementById(POST_RECEIVE_BLACKOUT_STYLE_ID)) return;
+    var s = document.createElement("style");
+    s.id = POST_RECEIVE_BLACKOUT_STYLE_ID;
+    s.textContent =
+      "#risque-post-receive-blackout{position:fixed;inset:0;z-index:9999999;margin:0;padding:0;" +
+      "background:#000000;pointer-events:none;}";
+    document.head.appendChild(s);
+  }
+
+  function showPostReceiveCardplayBlackout() {
+    injectPostReceiveBlackoutStylesOnce();
+    var el = document.getElementById("risque-post-receive-blackout");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "risque-post-receive-blackout";
+      el.setAttribute("aria-hidden", "true");
+      document.body.appendChild(el);
+    }
+    return function hidePostReceiveCardplayBlackout() {
+      var x = document.getElementById("risque-post-receive-blackout");
+      if (x && x.parentNode) {
+        x.parentNode.removeChild(x);
+      }
+    };
+  }
+
+  window.risqueMarkPostReceiveCardplayBlackout = function () {
+    try {
+      sessionStorage.setItem(POST_RECEIVE_CARDPLAY_BLACKOUT_KEY, "1");
+    } catch (eMark) {
+      /* ignore */
+    }
+    /*
+     * Outgoing page: cross-document view transitions (game.css) snapshot the old document until
+     * the new one paints — that snapshot was briefly showing receive-card. Force black + opt out
+     * of VT for this navigation so the handoff never leaks private UI.
+     */
+    try {
+      if (window.risqueDisplayIsPublic) return;
+      if (!document.getElementById(VT_SUPPRESS_ONE_SHOT_ID)) {
+        var vt = document.createElement("style");
+        vt.id = VT_SUPPRESS_ONE_SHOT_ID;
+        vt.textContent = "@view-transition { navigation: none !important; }";
+        document.head.appendChild(vt);
+      }
+      if (!document.getElementById(OUTGOING_NAV_BLACKOUT_ID) && document.body) {
+        var os = document.createElement("style");
+        os.setAttribute("data-risque-outgoing-nav-blackout", "1");
+        os.textContent =
+          "#" +
+          OUTGOING_NAV_BLACKOUT_ID +
+          "{position:fixed;inset:0;z-index:2147483647;margin:0;padding:0;background:#000!important;pointer-events:none;}";
+        document.head.appendChild(os);
+        var od = document.createElement("div");
+        od.id = OUTGOING_NAV_BLACKOUT_ID;
+        od.setAttribute("aria-hidden", "true");
+        document.body.appendChild(od);
+        void od.offsetHeight;
+      }
+    } catch (eOut) {
+      /* ignore */
+    }
+  };
+
+  function maybeStartPostReceiveBlackoutFromSession() {
+    if (window.risqueDisplayIsPublic) return;
+    if (!skipCardplayEntryHandoff) return;
+    try {
+      if (sessionStorage.getItem(POST_RECEIVE_CARDPLAY_BLACKOUT_KEY) !== "1") return;
+      sessionStorage.removeItem(POST_RECEIVE_CARDPLAY_BLACKOUT_KEY);
+    } catch (eRead) {
+      return;
+    }
+    if (document.getElementById("risque-post-receive-blackout")) {
+      window.__risquePostReceiveBlackoutHide = function hidePostReceiveCardplayBlackoutEarly() {
+        var x = document.getElementById("risque-post-receive-blackout");
+        if (x && x.parentNode) {
+          x.parentNode.removeChild(x);
+        }
+        var stEarly = document.getElementById("risque-post-receive-blackout-early-inline");
+        if (stEarly && stEarly.parentNode) {
+          stEarly.parentNode.removeChild(stEarly);
+        }
+      };
+    } else {
+      window.__risquePostReceiveBlackoutHide = showPostReceiveCardplayBlackout();
+    }
+  }
   /*
    * Public board must follow mirrored gameState.phase only. A stale ?phase=attack (or any host URL
    * copied into this tab) would mount the wrong UI (e.g. attack while state is deploy).
@@ -107,7 +205,7 @@
     typeof window.risqueLoginRecoveryUrl === "function"
       ? window.risqueLoginRecoveryUrl()
       : "game.html?phase=login&loginLegacyNext=game.html%3Fphase%3DplayerSelect%26selectKind%3DfirstCard&loginLoadRedirect=game.html%3Fphase%3Dcardplay%26legacyNext%3Dincome.html";
-  var BOARD_CORNER_TOOLS_VERSION = "8";
+  var BOARD_CORNER_TOOLS_VERSION = "12";
 
   function risqueDoc(name) {
     if (typeof window.risqueResolveDocUrl === "function") {
@@ -1176,8 +1274,8 @@
         var cn = names[i];
         var alt = cn.replace(/_/g, " ");
         html +=
-          '<img class="risque-host-cards-played-thumb" src="assets/images/cards/' +
-          cn +
+          '<img class="risque-host-cards-played-thumb" src="assets/images/Cards/' +
+          String(cn || "").toUpperCase() +
           '.webp" alt="' +
           alt +
           '" loading="lazy" />';
@@ -1232,8 +1330,8 @@
         var cn2 = names[i];
         var alt = cn2.replace(/_/g, " ");
         html +=
-          '<img class="risque-host-cards-played-thumb" src="assets/images/cards/' +
-          cn2 +
+          '<img class="risque-host-cards-played-thumb" src="assets/images/Cards/' +
+          String(cn2 || "").toUpperCase() +
           '.webp" alt="' +
           escapeHtmlLucky(alt) +
           '" loading="lazy" />';
@@ -2282,7 +2380,7 @@
     for (ii = 0; ii < ids.length; ii += 1) {
       var img = document.createElement("img");
       img.className = "risque-public-book-voice-card-img risque-public-book-voice-card-img--intro";
-      img.src = "assets/images/cards/" + ids[ii] + ".webp";
+      img.src = "assets/images/Cards/" + String(ids[ii] || "").toUpperCase() + ".webp";
       img.alt = "";
       img.setAttribute("loading", "lazy");
       row.appendChild(img);
@@ -3331,7 +3429,7 @@
           cardRow.className = "risque-public-book-voice-recap-card-row";
           var img1 = document.createElement("img");
           img1.className = "risque-public-book-voice-card-img risque-public-book-voice-card-img--active";
-          img1.src = "assets/images/cards/" + oneKey + ".webp";
+          img1.src = "assets/images/Cards/" + String(oneKey || "").toUpperCase() + ".webp";
           img1.alt = "";
           img1.setAttribute("loading", "lazy");
           cardRow.appendChild(img1);
@@ -3380,7 +3478,7 @@
           } else {
             img.classList.add("risque-public-book-voice-card-img--pending");
           }
-          img.src = "assets/images/cards/" + sid + ".webp";
+          img.src = "assets/images/Cards/" + String(sid || "").toUpperCase() + ".webp";
           img.alt = "";
           img.setAttribute("loading", "lazy");
           var stepBadge = null;
@@ -3767,7 +3865,7 @@
         "risque-public-cardplay-recap-card-img risque-public-cardplay-recap-card-img--stagger";
       img.style.animationDelay = recapPopIdx * 45 + "ms";
       recapPopIdx += 1;
-      img.src = "assets/images/cards/" + sid + ".webp";
+      img.src = "assets/images/Cards/" + String(sid || "").toUpperCase() + ".webp";
       img.alt = "";
       img.setAttribute("loading", "lazy");
       if (label.acquireStrokeColor) {
@@ -4785,7 +4883,52 @@
     return null;
   }
 
+  function getLastRoundAutosaveNumber() {
+    try {
+      var arr = tryParse(localStorage.getItem(ROUND_AUTOSAVE_KEY) || "[]");
+      if (!Array.isArray(arr) || !arr.length) return 0;
+      var last = arr[arr.length - 1] || {};
+      return Number(last.round) || 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function getRoundAutosaveSessionCount() {
+    try {
+      var n = Number(sessionStorage.getItem(ROUND_AUTOSAVE_SESSION_COUNT_KEY) || "0");
+      return n > 0 ? n : 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function setRoundAutosaveSessionCount(n) {
+    try {
+      var safe = Number(n) || 0;
+      sessionStorage.setItem(ROUND_AUTOSAVE_SESSION_COUNT_KEY, String(safe));
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function maybeAutosaveOnTurnCycle(prevState, nextState) {
+    /* Disabled: explicit receivecard round-boundary hook is authoritative. */
+    return;
+  }
+
+  function startRoundAutosaveWatcher() {
+    /* Disabled: explicit receivecard round-boundary hook is authoritative. */
+    return;
+  }
+
   function saveState(state) {
+    var prevState = null;
+    try {
+      prevState = tryParse(localStorage.getItem(STORAGE_KEY) || "null");
+    } catch (ePrev) {
+      prevState = null;
+    }
     function write() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }
@@ -4824,13 +4967,16 @@
 
   function saveRoundAutosaveSnapshot(gs) {
     if (!gs || window.risqueDisplayIsPublic) return;
+    var targetMode = hasRoundAutosaveDiskTarget() ? "disk-folder" : "browser-download";
+    var row = null;
     try {
-      var row = {
+      row = {
         at: Date.now(),
         round: Number(gs.round) || 1,
         phase: String(gs.phase || ""),
         currentPlayer: String(gs.currentPlayer || ""),
-        state: JSON.stringify(gs)
+        state: JSON.stringify(gs),
+        mode: targetMode
       };
       var arr = tryParse(localStorage.getItem(ROUND_AUTOSAVE_KEY) || "[]");
       if (!Array.isArray(arr)) arr = [];
@@ -4839,6 +4985,8 @@
         arr = arr.slice(arr.length - MAX_ROUND_AUTOSAVES);
       }
       localStorage.setItem(ROUND_AUTOSAVE_KEY, JSON.stringify(arr));
+      setRoundAutosaveStatus(Number(row.round) || 1, row.at, row.mode);
+      setRoundAutosaveSessionCount(Number(row.round) || 0);
     } catch (eAuto) {
       try {
         var fallback = tryParse(localStorage.getItem(ROUND_AUTOSAVE_KEY) || "[]");
@@ -4849,17 +4997,105 @@
         /* ignore */
       }
     }
+    if (targetMode === "disk-folder") {
+      Promise.resolve(writeRoundAutosaveToDisk(gs))
+        .then(function (ok) {
+          if (ok) return;
+          if (!row || !row.state) return;
+          row.mode = "browser-download";
+          setRoundAutosaveStatus(Number(row.round) || 1, row.at, row.mode);
+          exportBrowserRoundAutosaveJson(row);
+        })
+        .catch(function () {
+          if (!row || !row.state) return;
+          row.mode = "browser-download";
+          setRoundAutosaveStatus(Number(row.round) || 1, row.at, row.mode);
+          exportBrowserRoundAutosaveJson(row);
+        });
+      return;
+    }
     try {
-      writeRoundAutosaveToDisk(gs);
-    } catch (eDisk) {
+      if (row && row.state) {
+        exportBrowserRoundAutosaveJson(row);
+      }
+    } catch (eExport) {
       /* ignore */
     }
+  }
+
+  /**
+   * Explicit round-boundary hook called by receivecard phase when turn wraps to player 1.
+   * completedRound is the round that just ended (before gameState.round increments).
+   */
+  window.risqueRoundAutosaveOnRoundComplete = function (gs, completedRound) {
+    if (!gs || window.risqueDisplayIsPublic) return;
+    var n = Number(completedRound) || 0;
+    var fromState = (Number(gs.round) || 0) - 1;
+    if (fromState > 0) {
+      n = fromState;
+    }
+    if (n < 1) return;
+    var saveGs = gs;
+    try {
+      saveGs = JSON.parse(JSON.stringify(gs));
+      saveGs.round = n;
+    } catch (eCloneRoundSave) {
+      /* keep original reference fallback */
+    }
+    saveRoundAutosaveSnapshot(saveGs);
+  };
+
+  function exportBrowserRoundAutosaveJson(row) {
+    if (!row || !row.state) return;
+    var d = new Date(Number(row.at) || Date.now());
+    var datePart = d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+    var rawName =
+      "RISQUE  round " +
+      (Number(row.round) || 1) +
+      "  " +
+      datePart +
+      "  " +
+      formatRisque12HourAmPm(d) +
+      "  browser backup";
+    var base = sanitizeRisqueSaveBasename(rawName);
+    if (!base) base = "RISQUE-round-" + String(Number(row.round) || 1) + "-browser-backup";
+    var fname = risqueSaveBasenameForFilename(base) + ".json";
+    var blob = new Blob([row.state], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = fname;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 1000);
+    setBoardCornerMsg("Round autosave: exported JSON browser backup.");
+    logEvent("Round autosave: exported browser backup JSON", { file: fname });
   }
 
   function removeRoundAutosaveSetupOverlay() {
     var el = document.getElementById("risque-round-autosave-setup");
     if (el && el.parentNode) {
       el.parentNode.removeChild(el);
+    }
+  }
+
+  function markRoundAutosavePromptSeen() {
+    try {
+      sessionStorage.setItem(ROUND_AUTOSAVE_PROMPT_SEEN_KEY, "1");
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function hasSeenRoundAutosavePromptThisTab() {
+    try {
+      return sessionStorage.getItem(ROUND_AUTOSAVE_PROMPT_SEEN_KEY) === "1";
+    } catch (e) {
+      return false;
     }
   }
 
@@ -4888,88 +5124,112 @@
     document.head.appendChild(s);
   }
 
-  function shouldOfferRoundAutosaveSetupThisBoot() {
+  function shouldOfferRoundAutosaveSetup(opts) {
+    opts = opts || {};
     if (window.risqueDisplayIsPublic) return false;
+    /* Boot reminder: show folder prompt even on fresh login before players exist */
+    if (opts.intro) return true;
     if (typeof window.showDirectoryPicker !== "function") return false;
     /* file:// often blocks directory picker; HTTPS / localhost is the supported path */
     if (window.location.protocol === "file:") return false;
+    if (opts.force) return true;
     if (forcedPhase === "login" && (!state.players || !state.players.length)) {
       return false;
     }
     return true;
   }
 
-  function showRoundAutosaveSetupPromptOncePerLoad() {
-    if (!shouldOfferRoundAutosaveSetupThisBoot()) return;
-    if (__risqueRoundAutosaveSetupPromptShownThisLoad) return;
-    __risqueRoundAutosaveSetupPromptShownThisLoad = true;
-    if (document.getElementById("risque-round-autosave-setup")) return;
+  function mountRoundAutosaveSetupOverlay(opts) {
+    if (!shouldOfferRoundAutosaveSetup(opts)) return false;
+    var isFileMode = window.location.protocol === "file:";
+    var pickerSupported = typeof window.showDirectoryPicker === "function" && !isFileMode;
+    removeRoundAutosaveSetupOverlay();
     injectRoundAutosaveSetupStylesOnce();
     var ov = document.createElement("div");
     ov.id = "risque-round-autosave-setup";
     ov.setAttribute("role", "dialog");
     ov.setAttribute("aria-modal", "true");
     ov.setAttribute("aria-label", "Round autosave folder");
-    ov.innerHTML =
-      '<div class="risque-ras-card">' +
-      '<p class="risque-ras-title">Set up round autosave folder</p>' +
-      '<p class="risque-ras-body">After each full round, RISQUE can save a JSON file automatically. ' +
-      "Choose a folder (for example <strong>Documents\\Risque Game Saves</strong>). " +
-      "Browsers cannot use that path without your permission. " +
-      "<strong>Every reload or hard refresh (Ctrl+F5)</strong> clears this permission for safety — " +
-      "you will be asked again to pick the folder.</p>" +
-      '<div class="risque-ras-actions">' +
-      '<button type="button" class="risque-ras-primary" id="risque-ras-choose">Choose folder…</button>' +
-      '<button type="button" class="risque-ras-secondary" id="risque-ras-skip">Not now</button>' +
-      "</div>" +
-      "</div>";
+    if (isFileMode) {
+      ov.innerHTML =
+        '<div class="risque-ras-card">' +
+        '<p class="risque-ras-title">Round autosave uses Downloads in local mode</p>' +
+        '<p class="risque-ras-body">You opened RISQUE from local files. Autosave will export JSON backups to your browser download folder after each completed round. ' +
+        "To save directly into a chosen folder, run RISQUE from localhost/https instead. " +
+        "<strong>Every reload or hard refresh (Ctrl+F5)</strong> asks again for this session.</p>" +
+        '<div class="risque-ras-actions">' +
+        '<button type="button" class="risque-ras-primary" id="risque-ras-local-continue">Continue</button>' +
+        "</div>" +
+        "</div>";
+    } else {
+      ov.innerHTML =
+        '<div class="risque-ras-card">' +
+        '<p class="risque-ras-title">Set up round autosave folder</p>' +
+        '<p class="risque-ras-body">After each full round, RISQUE can save a JSON file automatically. ' +
+        "Choose a folder (for example <strong>Documents\\Risque Game Saves</strong>). " +
+        "Browsers cannot use that path without your permission. " +
+        "<strong>Every reload or hard refresh (Ctrl+F5)</strong> clears this permission for safety — " +
+        "you will be asked again to pick the folder.</p>" +
+        '<div class="risque-ras-actions">' +
+        '<button type="button" class="risque-ras-primary" id="risque-ras-choose">Choose folder…</button>' +
+        "</div>" +
+        "</div>";
+    }
     document.body.appendChild(ov);
     var choose = document.getElementById("risque-ras-choose");
-    var skip = document.getElementById("risque-ras-skip");
+    var localContinue = document.getElementById("risque-ras-local-continue");
     if (choose) {
       choose.addEventListener("click", function () {
-        var pickerOpts = { id: "risque-round-autosaves" };
-        window
-          .showDirectoryPicker(pickerOpts)
-          .then(function (dir) {
-            __risqueRoundAutosaveDirHandle = dir;
-            removeRoundAutosaveSetupOverlay();
-            setBoardCornerMsg("Round autosave folder set. Files save each new round.");
-            logEvent("Round autosave: folder selected");
-          })
-          .catch(function (e) {
-            if (e && e.name === "AbortError") {
-              setBoardCornerMsg("Round autosave: folder selection canceled.");
-            } else {
-              setBoardCornerMsg(
-                "Round autosave: could not use folder picker (" +
-                  (e && e.message ? e.message : "error") +
-                  ")."
-              );
-            }
-          });
+        if (pickerSupported) {
+          if (__risqueRoundAutosavePickerBusy) return;
+          __risqueRoundAutosavePickerBusy = true;
+          window
+            .showDirectoryPicker()
+            .then(function (dir) {
+              __risqueRoundAutosaveDirHandle = dir;
+              markRoundAutosavePromptSeen();
+              removeRoundAutosaveSetupOverlay();
+              setBoardCornerMsg("Round autosave folder set. Files save each new round.");
+              logEvent("Round autosave: folder selected");
+            })
+            .catch(function (e) {
+              if (e && e.name === "AbortError") {
+                setBoardCornerMsg("Round autosave: folder required for web mode.");
+              } else {
+                setBoardCornerMsg(
+                  "Round autosave: could not use folder picker (" +
+                    (e && e.message ? e.message : "error") +
+                    ")."
+                );
+              }
+            })
+            .finally(function () {
+              __risqueRoundAutosavePickerBusy = false;
+            });
+        }
       });
     }
-    if (skip) {
-      skip.addEventListener("click", function () {
+    if (localContinue) {
+      localContinue.addEventListener("click", function () {
+        markRoundAutosavePromptSeen();
         removeRoundAutosaveSetupOverlay();
-        setBoardCornerMsg("Round autosave: skipped this session (in-browser backups still run).");
-        logEvent("Round autosave: folder setup skipped");
+        setBoardCornerMsg("Round autosave: local mode will export JSON backups to downloads.");
+        logEvent("Round autosave: local mode confirmed (downloads)");
       });
     }
+    return true;
   }
 
-  function scheduleRoundAutosaveSetupPrompt() {
-    if (!shouldOfferRoundAutosaveSetupThisBoot()) return;
-    setTimeout(function () {
-      showRoundAutosaveSetupPromptOncePerLoad();
-    }, 1500);
+  /** Show folder prompt once per page load; host only; skipped if already chosen/open. */
+  function showRoundAutosaveIntroModalOnce() {
+    /* Prompt flow disabled: autosave runs silently to downloads. */
+    return;
   }
 
   function writeRoundAutosaveToDisk(gs) {
     var dir = __risqueRoundAutosaveDirHandle;
-    if (!dir || !gs) return;
-    if (typeof dir.getFileHandle !== "function") return;
+    if (!dir || !gs) return Promise.resolve(false);
+    if (typeof dir.getFileHandle !== "function") return Promise.resolve(false);
     var d = new Date();
     var datePart = d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
     var rawName = "RISQUE  round " + (Number(gs.round) || 1) + "  " + datePart + "  " + formatRisque12HourAmPm(d);
@@ -4979,7 +5239,7 @@
     }
     var fname = risqueSaveBasenameForFilename(base) + ".json";
     var payload = JSON.stringify(gs, null, 2);
-    dir
+    return dir
       .getFileHandle(fname, { create: true })
       .then(function (fh) {
         return fh.createWritable();
@@ -4992,11 +5252,13 @@
       })
       .then(function () {
         logEvent("Round autosave: wrote file", { file: fname });
+        return true;
       })
       .catch(function (err) {
         logEvent("Round autosave: disk write failed", {
           message: err && err.message ? err.message : String(err)
         });
+        return false;
       });
   }
 
@@ -5797,6 +6059,58 @@
     }
   }
 
+  function formatRoundAutosaveStatusTime(atMs) {
+    if (!atMs) return "";
+    var d = new Date(Number(atMs) || 0);
+    if (!d || isNaN(d.getTime())) return "";
+    var datePart = d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+    return datePart + " " + formatRisque12HourAmPm(d);
+  }
+
+  function hasRoundAutosaveDiskTarget() {
+    /* For now, always use browser-download autosaves in all environments. */
+    return false;
+  }
+
+  function setRoundAutosaveStatus(round, atMs, mode) {
+    var el = document.getElementById("risque-board-round-save-status");
+    if (!el) return;
+    var n = Number(round) || 0;
+    if (n > 0) {
+      var when = formatRoundAutosaveStatusTime(atMs);
+      var m = String(mode || "");
+      var tail =
+        m === "disk-folder"
+          ? "saved to folder"
+          : m === "browser-download"
+            ? "saved to downloads"
+            : hasRoundAutosaveDiskTarget()
+              ? "saved to folder"
+              : "saved to downloads";
+      el.textContent = when ? "Round " + n + " [" + when + "] " + tail : "Round " + n + " " + tail;
+      return;
+    }
+    el.textContent = "ROUND AUTOSAVE: WAITING";
+  }
+
+  function syncRoundAutosaveStatusFromStorage() {
+    try {
+      if (getRoundAutosaveSessionCount() < 1) {
+        setRoundAutosaveStatus(0, 0, "");
+        return;
+      }
+      var arr = tryParse(localStorage.getItem(ROUND_AUTOSAVE_KEY) || "[]");
+      if (!Array.isArray(arr) || !arr.length) {
+        setRoundAutosaveStatus(0, 0, "");
+        return;
+      }
+      var last = arr[arr.length - 1] || null;
+      setRoundAutosaveStatus(last && last.round, last && last.at, last && last.mode);
+    } catch (eRoundStatus) {
+      setRoundAutosaveStatus(0, 0, "");
+    }
+  }
+
   /** Load game stays visible on the host map in every phase (public TV has no corner tools). */
   function syncBoardCornerLoadVisibility() {
     var loadBtn = document.getElementById("risque-board-load");
@@ -6078,6 +6392,7 @@
       '<div class="risque-board-corner-bottom" role="navigation" aria-label="Documentation">' +
       '<button type="button" id="risque-board-manual" class="risque-board-op-btn">MANUAL</button>' +
       '<button type="button" id="risque-board-help" class="risque-board-op-btn">HELP</button>' +
+      '<div id="risque-board-round-save-status" class="risque-board-round-save-status" aria-live="polite">ROUND AUTOSAVE: WAITING</div>' +
       "</div>" +
       '<input type="file" id="risque-board-load-input" accept=".json,.JSON" style="display:none" />';
     if (!wrap) {
@@ -6087,7 +6402,7 @@
       wrap.setAttribute("data-risque-corner-v", BOARD_CORNER_TOOLS_VERSION);
       wrap.setAttribute(
         "aria-label",
-        "New game, load game, save game, grace rollback, public board, hide row; manual and help"
+        "New game, load game, save game, grace rollback, public board, hide row; manual, help, and round autosave status"
       );
       wrap.innerHTML = cornerInner;
       canvas.appendChild(wrap);
@@ -6095,7 +6410,7 @@
       wrap.setAttribute("data-risque-corner-v", BOARD_CORNER_TOOLS_VERSION);
       wrap.setAttribute(
         "aria-label",
-        "New game, load game, save game, grace rollback, public board, hide row; manual and help"
+        "New game, load game, save game, grace rollback, public board, hide row; manual, help, and round autosave status"
       );
       wrap.innerHTML = cornerInner;
       boardCornerToolsWired = false;
@@ -6104,6 +6419,7 @@
       canvas.appendChild(wrap);
     }
     syncBoardCornerLoadVisibility();
+    syncRoundAutosaveStatusFromStorage();
     if (boardCornerToolsWired) return;
     boardCornerToolsWired = true;
 
@@ -6396,10 +6712,17 @@
     }
   }
   logEvent("Runtime boot", { phase: state.phase, currentPlayer: state.currentPlayer, round: state.round });
-  scheduleRoundAutosaveSetupPrompt();
+  if (forcedPhase === "login" || state.phase === "login") {
+    setRoundAutosaveSessionCount(0);
+    __risqueRoundAutosaveSawNonFirstPlayerThisSession = false;
+    __risqueRoundAutosaveSkippedInitialFirstPlayerCycle = false;
+  }
 
   publicMirrorLastPhase = window.risqueDisplayIsPublic ? state.phase : null;
   syncPhaseDataAttr(state);
+  maybeStartPostReceiveBlackoutFromSession();
+  startRoundAutosaveWatcher();
+  showRoundAutosaveIntroModalOnce();
 
   if (forcedPhase === "playerSelect" && selectKind && window.risquePhases && window.risquePhases.playerSelect) {
     document.body.classList.add("risque-setup-fullstage");
@@ -6710,6 +7033,19 @@
         }
       });
       refreshVisuals("Card play mounted");
+      if (typeof window.__risquePostReceiveBlackoutHide === "function") {
+        var hideBlk = window.__risquePostReceiveBlackoutHide;
+        window.__risquePostReceiveBlackoutHide = null;
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            try {
+              hideBlk();
+            } catch (eBlk) {
+              /* ignore */
+            }
+          });
+        });
+      }
     }
 
     if (skipCardplayEntryHandoff && !window.risqueDisplayIsPublic) {
@@ -6999,6 +7335,27 @@
     window.location.href = risqueDoc("index");
   });
 
+  var btnMovePublic = document.getElementById("btnMovePublic");
+  if (btnMovePublic) {
+    if (window.risqueDisplayIsPublic) {
+      btnMovePublic.hidden = true;
+    } else {
+      btnMovePublic.addEventListener("click", function () {
+        try {
+          if (typeof window.risqueOpenPublicDisplayWindow === "function") {
+            window.risqueOpenPublicDisplayWindow();
+          }
+        } catch (eMovePub) {
+          /* ignore */
+        }
+        render(
+          state,
+          "Click the public window, then press Win+Shift+Right (or Win+Shift+Left)."
+        );
+      });
+    }
+  }
+
   document.getElementById("btnSave").addEventListener("click", function () {
     triggerHostQuickSave("devtools");
   });
@@ -7057,9 +7414,84 @@
     return u.pathname + u.search + u.hash;
   }
 
+  function popupFeaturesForBounds(bounds) {
+    var L = Math.floor(bounds.left);
+    var T = Math.floor(bounds.top);
+    var W = Math.max(400, Math.floor(bounds.width));
+    var H = Math.max(320, Math.floor(bounds.height));
+    return (
+      "left=" +
+      L +
+      ",top=" +
+      T +
+      ",width=" +
+      W +
+      ",height=" +
+      H +
+      ",menubar=no,toolbar=no,location=yes,resizable=yes,scrollbars=yes,status=no"
+    );
+  }
+
+  function currentScreenBoundsFallback() {
+    var left = typeof screen.availLeft === "number" ? screen.availLeft : typeof window.screenX === "number" ? window.screenX : 0;
+    var top = typeof screen.availTop === "number" ? screen.availTop : typeof window.screenY === "number" ? window.screenY : 0;
+    var width = screen.availWidth || screen.width || 1280;
+    var height = screen.availHeight || screen.height || 720;
+    return { left: left, top: top, width: width, height: height };
+  }
+
   window.risqueOpenPublicDisplayWindow = function () {
     try {
-      window.open(buildPublicDisplayUrl(), "risquePublicBoard", "noopener,noreferrer");
+      var url = buildPublicDisplayUrl();
+      var baseBounds = currentScreenBoundsFallback();
+      var popup = window.open(url, "risquePublicBoard", popupFeaturesForBounds(baseBounds));
+      if (!popup) {
+        window.alert("Popup blocked. Allow popups for this site, then click Public again.");
+        return;
+      }
+      try {
+        popup.focus();
+      } catch (eFocus) {
+        /* ignore */
+      }
+
+      if (!("getScreenDetails" in window)) return;
+      window
+        .getScreenDetails()
+        .then(function (sd) {
+          if (!sd || !Array.isArray(sd.screens) || sd.screens.length < 2) return;
+          var cur = sd.currentScreen || null;
+          var target = null;
+          for (var i = 0; i < sd.screens.length; i++) {
+            var s = sd.screens[i];
+            var same =
+              cur &&
+              s &&
+              s.left === cur.left &&
+              s.top === cur.top &&
+              s.width === cur.width &&
+              s.height === cur.height;
+            if (!same) {
+              target = s;
+              break;
+            }
+          }
+          if (!target) return;
+          var left = typeof target.availLeft === "number" ? target.availLeft : target.left;
+          var top = typeof target.availTop === "number" ? target.availTop : target.top;
+          var width = typeof target.availWidth === "number" ? target.availWidth : target.width;
+          var height = typeof target.availHeight === "number" ? target.availHeight : target.height;
+          try {
+            popup.moveTo(left, top);
+            popup.resizeTo(width, height);
+            popup.focus();
+          } catch (eMove) {
+            /* ignore */
+          }
+        })
+        .catch(function () {
+          /* ignore */
+        });
     } catch (e1) {
       console.warn("risqueOpenPublicDisplayWindow:", e1);
     }

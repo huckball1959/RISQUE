@@ -400,6 +400,12 @@
         delete gs.risqueConquestChainActive;
         delete gs.risqueConquestChainPaidContinents;
         delete gs.risqueRuntimeCardplayIncomeMode;
+        delete gs.risqueConquestAttackEntryTurnKey;
+        delete gs.risqueConquestAttackEntryContinents;
+        if (window.gameUtils && typeof window.gameUtils.clearRisqueConquestAttackStartSession === "function") {
+          window.gameUtils.clearRisqueConquestAttackStartSession();
+        }
+        delete gs.risqueConquestStandardIncomeContinentKeysMeta;
         try {
           persist(gs);
         } catch (eSave) {

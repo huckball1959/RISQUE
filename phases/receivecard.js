@@ -208,8 +208,10 @@
     gameState.cardEarnedViaCardplay = false;
     gameState.cardAwardedThisTurn = false;
     gameState.conqueredThisTurn = false;
+    var completedRound = 0;
     if (nextIndex === 0) {
-      gameState.round = (gameState.round || 1) + 1;
+      completedRound = Number(gameState.round) || 1;
+      gameState.round = completedRound + 1;
     }
     gameState.phase = "cardplay";
     receiveCardLog("Advanced turn", {
@@ -217,7 +219,7 @@
       round: gameState.round,
       phase: gameState.phase
     });
-    return true;
+    return completedRound;
   }
 
   function receiveCardRunDisplay() {
@@ -240,7 +242,7 @@
       receiveCardSetMessage("");
       handStrip.innerHTML = "";
       if (newImg) {
-        newImg.src = "assets/images/cards/CARDBACK.webp";
+        newImg.src = "assets/images/Cards/CARDBACK.webp";
         newImg.alt = "";
         newImg.classList.remove("receivecard-new-glow");
       }
@@ -293,18 +295,18 @@
       if (drawnThisStep && cardName === drawnThisStep.name) {
         img.classList.add("receivecard-thumb-new");
       }
-      img.src = "assets/images/cards/" + cardName + ".webp";
+      img.src = "assets/images/Cards/" + String(cardName || "").toUpperCase() + ".webp";
       img.alt = cardName.replace(/_/g, " ");
       handStrip.appendChild(img);
     });
 
     if (newImg) {
       if (drawnThisStep) {
-        newImg.src = "assets/images/cards/" + drawnThisStep.name + ".webp";
+        newImg.src = "assets/images/Cards/" + String(drawnThisStep.name || "").toUpperCase() + ".webp";
         newImg.alt = drawnThisStep.name.replace(/_/g, " ");
         newImg.classList.add("receivecard-new-glow");
       } else {
-        newImg.src = "assets/images/cards/CARDBACK.webp";
+        newImg.src = "assets/images/Cards/CARDBACK.webp";
         newImg.alt = conquestElimReview
           ? "Deck card after reinforcement"
           : eligible
@@ -441,6 +443,9 @@
     var navWithSkip = risqueApplyConquestEliminationContinueMutations();
     if (!navWithSkip) return;
     function goConquestCardplay() {
+      if (typeof window.risqueMarkPostReceiveCardplayBlackout === "function") {
+        window.risqueMarkPostReceiveCardplayBlackout();
+      }
       if (window.risqueNavigateWithFade) {
         window.risqueNavigateWithFade(navWithSkip);
       } else {
@@ -460,7 +465,8 @@
       receiveCardEndTurnConquestElimination();
       return;
     }
-    if (!receiveCardAdvanceTurn()) return;
+    var completedRound = receiveCardAdvanceTurn();
+    if (completedRound === false) return;
     var gsAfter = window.gameState || {};
     try {
       delete gsAfter.risqueControlVoice;
@@ -479,6 +485,10 @@
     } catch (e) {
       /* ignore */
     }
+    if (completedRound > 0 && typeof window.risqueRoundAutosaveOnRoundComplete === "function") {
+      var completedFromState = (Number(gsAfter.round) || 0) - 1;
+      window.risqueRoundAutosaveOnRoundComplete(gsAfter, completedFromState > 0 ? completedFromState : completedRound);
+    }
     if (typeof window.risqueHostReplaceShellGameState === "function") {
       window.risqueHostReplaceShellGameState(gsAfter);
     }
@@ -489,6 +499,9 @@
       "Next player\n\nHand the tablet to " + nextPlayerName + " for card play.\n\nOnly this player should tap Continue.";
     function goNextPlayerCardplay() {
       var target = "game.html?phase=cardplay&legacyNext=income.html&postReceive=1";
+      if (typeof window.risqueMarkPostReceiveCardplayBlackout === "function") {
+        window.risqueMarkPostReceiveCardplayBlackout();
+      }
       if (window.risqueNavigateWithFade) {
         window.risqueNavigateWithFade(target);
       } else {
@@ -680,7 +693,7 @@
         '<div class="text title" style="left:1152px;top:328px;width:704px;height:80px;">Receive Card</div>' +
         '<div id="receivecard-compact-message" class="text" style="left:1152px;top:380px;width:704px;font-size:28px;"></div>' +
         '<div id="receivecard-hand-strip" style="position:absolute;left:1100px;top:480px;display:flex;gap:6px;flex-wrap:wrap;max-width:800px;"></div>' +
-        '<img id="receivecard-new-img" class="card-image" style="left:1250px;top:620px;width:150px;height:240px;" src="assets/images/cards/CARDBACK.webp" alt="" />' +
+        '<img id="receivecard-new-img" class="card-image" style="left:1250px;top:620px;width:150px;height:240px;" src="assets/images/Cards/CARDBACK.webp" alt="" />' +
         '<button type="button" id="receivecard-btn-end" class="button" style="left:1250px;top:900px;width:280px;height:36px;">Continue</button>';
     }
 

@@ -4,7 +4,9 @@
  * continents newly completed since attack entry (continentsSnapshot) vs current board.
  * When pendingNew is empty after recompute, apply the same territory + held-continent reinforcement as
  * phases/income.js — otherwise a played book (+10) could be the only payout (old fallback only ran when
- * total was &lt; 1).
+ * total was &lt; 1). Continents the attacker fully held at **attack phase mount** (every
+ * `?phase=attack` host mount refreshes `risqueConquestAttackEntryContinents`) define campaign “new”;
+ * cardplay `continentsSnapshot` is only used if that list is still empty (e.g. legacy save).
  */
 (function () {
   "use strict";
@@ -155,7 +157,10 @@
         return;
       }
       var currentPlayer = gameState.players.find(function (p) {
-        return p.name === gameState.currentPlayer;
+        return (
+          p &&
+          String(p.name || "").toUpperCase() === String(gameState.currentPlayer || "").toUpperCase()
+        );
       });
       if (!currentPlayer) {
         logToStorage("Current player not found");
@@ -165,6 +170,15 @@
         }, 2000);
         return;
       }
+      if (typeof window.gameUtils.getRisqueConquestAttackStartBaselineList === "function") {
+        var baselineRestore = window.gameUtils.getRisqueConquestAttackStartBaselineList(gameState);
+        if (baselineRestore.length) {
+          var btk =
+            (Number(gameState.round) || 1) + "|" + String(gameState.currentPlayer || "");
+          gameState.risqueConquestAttackEntryTurnKey = btk;
+          gameState.risqueConquestAttackEntryContinents = baselineRestore.slice();
+        }
+      }
       /* Recompute when baselines exist; if that yields nothing but conquer already set pending (e.g. snapshot missing in save), keep conquer's list. */
       if (typeof window.gameUtils.computePendingNewContinentsForConquest === "function") {
         var recomputed = window.gameUtils.computePendingNewContinentsForConquest(gameState);
@@ -172,9 +186,14 @@
         if (recomputed && recomputed.length > 0) {
           gameState.pendingNewContinents = recomputed;
         } else if (Array.isArray(prevPending) && prevPending.length > 0) {
-          /* keep */
+          gameState.pendingNewContinents = prevPending;
         } else {
           gameState.pendingNewContinents = recomputed || [];
+        }
+        /* computePendingNewContinentsForConquest already filters attack-entry baseline; re-apply if state was only adjusted above. */
+        gameState.pendingNewContinents = window.gameUtils.computePendingNewContinentsForConquest(gameState);
+        if (typeof window.gameUtils.filterConIncomePendingContinentsArray === "function") {
+          gameState.pendingNewContinents = window.gameUtils.filterConIncomePendingContinentsArray(gameState);
         }
       }
       if (!Object.keys(gameState.continentsSnapshot || {}).length) {
@@ -194,18 +213,35 @@
         return snapshot[key];
       });
       var pendingNew = gameState.pendingNewContinents || [];
+      var attackEntryContinents =
+        typeof window.gameUtils.getRisqueConquestAttackStartBaselineList === "function"
+          ? window.gameUtils.getRisqueConquestAttackStartBaselineList(gameState)
+          : gameState.risqueConquestAttackEntryContinents || [];
       logToStorage("Income continent trace", {
         snapshotOwned: snapshotOwned,
         turnStartKeys: Object.keys(gameState.risqueTurnStartContinentsSnapshot || {}),
         ownedContinents: ownedContinents,
         pendingNew: pendingNew,
         collectionCounts: gameState.continentCollectionCounts,
-        baselineLocked: !!gameState.risqueConquestIncomeBaselineLocked
+        baselineLocked: !!gameState.risqueConquestIncomeBaselineLocked,
+        attackEntryContinents: attackEntryContinents,
+        chainActive: !!gameState.risqueConquestChainActive,
+        runtimeIncomeMode: gameState.risqueRuntimeCardplayIncomeMode || ""
       });
       var continentDetails = "";
       var continentRowsForMirror = [];
       var cdn = window.gameUtils && window.gameUtils.continentDisplayNames;
       pendingNew.forEach(function (key) {
+        if (
+          window.gameUtils &&
+          typeof window.gameUtils.shouldSkipConIncomeBaselineContinent === "function" &&
+          window.gameUtils.shouldSkipConIncomeBaselineContinent(gameState, key)
+        ) {
+          logToStorage("Con-income skip pending continent (baseline / standard income already paid)", {
+            key: key
+          });
+          return;
+        }
         var collectionCount = gameState.continentCollectionCounts[key] || 0;
         var bonus =
           typeof window.gameUtils.getContinentConquestIncomeValue === "function"
@@ -232,6 +268,7 @@
         window.gameUtils &&
         typeof window.gameUtils.getPlayerContinents === "function" &&
         typeof window.gameUtils.getNextContinentValue === "function";
+      var skipHeldContinentFromPreAttackBaseline = true;
 
       if (useStandardHeldSupplement) {
         territoryBonusRow = Math.max(Math.floor(territoryCount / 3), 3);
@@ -252,6 +289,14 @@
             }
           }
           if (cKey == null) continue;
+          if (
+            skipHeldContinentFromPreAttackBaseline &&
+            window.gameUtils &&
+            typeof window.gameUtils.shouldSkipConIncomeBaselineContinent === "function" &&
+            window.gameUtils.shouldSkipConIncomeBaselineContinent(gameState, cKey)
+          ) {
+            continue;
+          }
           var cVal = window.gameUtils.getNextContinentValue(cKey, gameState.continentCollectionCounts[cKey] || 0);
           if (cVal > 0) {
             continentBonusHeld += cVal;

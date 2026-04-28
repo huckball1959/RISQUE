@@ -36,7 +36,7 @@
       background-color: #000;
     }
   </style>
-  <link rel="stylesheet" href="game.css?v=public-cardplay-hand-preview-2026-04-19" />
+  <link rel="stylesheet" href="game.css?v=public-kiosk-tv-bar-2026-04-28" />
   <script>
     (function () {
       try {
@@ -230,11 +230,35 @@
       document.body.classList.add(pub ? "risque-view-public" : "risque-view-host");
     })();
   </script>
+  <script>
+    (function () {
+      try {
+        if (window.risqueDisplayIsPublic) return;
+        var q = new URLSearchParams(window.location.search);
+        if (q.get("postReceive") !== "1") return;
+        if (sessionStorage.getItem("risquePostReceiveCardplayBlackout") !== "1") return;
+        if (document.getElementById("risque-post-receive-blackout")) return;
+        var st = document.createElement("style");
+        st.id = "risque-post-receive-blackout-early-inline";
+        st.textContent =
+          "#risque-post-receive-blackout{position:fixed;inset:0;z-index:2147483647;margin:0;padding:0;" +
+          "background:#000;pointer-events:none}";
+        document.head.appendChild(st);
+        var d = document.createElement("div");
+        d.id = "risque-post-receive-blackout";
+        d.setAttribute("aria-hidden", "true");
+        document.body.appendChild(d);
+      } catch (e) {
+        /* ignore */
+      }
+    })();
+  </script>
   <header class="topbar">
     <div class="topbar-title">RISQUE Runtime (visual)</div>
     <div class="topbar-actions">
       <button type="button" id="btnLauncher">Launcher</button>
       <button type="button" id="btnLegacy">Launcher</button>
+      <button type="button" id="btnMovePublic">Move Public Window</button>
       <button type="button" id="btnSave">Save Snapshot</button>
       <button type="button" id="btnReload" title="Reload this page (same as browser refresh; works with Live Server)">
         Reload page
@@ -274,27 +298,27 @@
     <span class="risque-public-tv-bar-label">TV view</span>
   </div>
 
-  <script src="js/core.js?v=replay-ghost-markers-2026-04-19"></script>
+  <script src="js/core.js?v=std-income-meta-syntaxfix-2026-04-27f"></script>
   <script src="js/replay-tape.js?v=replay-public-elim-splash-2026-04-19"></script>
   <script src="js/risque-external-urls.js"></script>
-  <script src="phases/login.js?v=replay-sidecar-clear-2026-04-19"></script>
-  <script src="phases/privacy-gate.js"></script>
+  <script src="phases/login.js?v=login-centered-public-move-button-2026-04-27c"></script>
+  <script src="phases/privacy-gate.js?v=handoff-nav-order-2026-04-26"></script>
   <script src="phases/player-select.js"></script>
   <script src="phases/deal.js"></script>
-  <script src="phases/deploy.js"></script>
+  <script src="phases/deploy.js?v=deploy-clear-std-income-meta-2026-04-27e"></script>
   <script src="phases/conquer.js?v=conquer-mirror-order-2026-04-14"></script>
-  <script src="phases/attack.js?v=instant-campaign-host-paint-2026-04-19"></script>
+  <script src="phases/attack.js?v=campaign-leave-behind-halt-weak-garrison-2026-04-27"></script>
   <script src="phases/runtime-hud.js?v=cardplay-banner-no-stroke-2026-04-13"></script>
   <script src="js/post-cardplay-navigator.js"></script>
-  <script src="phases/cardplay.js?v=public-wild-recap-side-label-2026-04-19"></script>
-  <script src="phases/income.js?v=income-layout-private-2026-04-13"></script>
-  <script src="phases/con-income-phase.js?v=conquest-paid-continents-2026-04-17"></script>
-  <script src="phases/attack-phase.js"></script>
+  <script src="phases/cardplay.js?v=public-wild-recap-side-label-casefix-2026-04-25"></script>
+  <script src="phases/income.js?v=income-std-income-continent-meta-2026-04-27e"></script>
+  <script src="phases/con-income-phase.js?v=con-income-player-casefix-2026-04-27e"></script>
+  <script src="phases/attack-phase.js?v=capture-attack-entry-continents-2026-04-26"></script>
   <script src="phases/reinforce.js?v=host-reinforce-trooprow"></script>
   <script src="phases/reinforce-phase.js?v=reinforce-phase-flex-order-2026-04-19b"></script>
-  <script src="phases/receivecard.js?v=receivecard-hand-50pct-2026-04-13"></script>
+  <script src="phases/receivecard.js?v=receivecard-postreceive-vt-2026-04-26b"></script>
   <script src="phases/postgame.js?v=replay-merge-postgame-2026-04-19"></script>
   <script src="phases/conquer-phase.js?v=conquer-runtime-2026-04-13"></script>
-  <script src="js/game-shell.js?v=replay-public-elim-splash-2026-04-19"></script>
+  <script src="js/game-shell.js?v=public-button-second-window-2026-04-28d"></script>
 </body>
 </html>

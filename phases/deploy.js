@@ -757,6 +757,15 @@
         delete gameState.risqueConquestChainPaidContinents;
         clearedConquestIncome = true;
       }
+      if (gameState.risqueConquestAttackEntryTurnKey != null || gameState.risqueConquestAttackEntryContinents) {
+        delete gameState.risqueConquestAttackEntryTurnKey;
+        delete gameState.risqueConquestAttackEntryContinents;
+        if (window.gameUtils && typeof window.gameUtils.clearRisqueConquestAttackStartSession === "function") {
+          window.gameUtils.clearRisqueConquestAttackStartSession();
+        }
+        delete gameState.risqueConquestStandardIncomeContinentKeysMeta;
+        clearedConquestIncome = true;
+      }
       if (clearedConquestIncome) {
         try {
           localStorage.setItem("gameState", JSON.stringify(gameState));
