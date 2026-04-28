@@ -512,6 +512,31 @@ body.risque-view-host[data-risque-phase="attack"] .hud-banner-player-phase-line 
   line-height: 1.05;
 }
 
+/*
+ * Public TV — committed cardplay recap: replace RISQUE with CARD PROCESSING; center on canvas at 1500px
+ * (1080 map + 420 = half of 840px control column). HUD column is left:1125px width:742px → 1500−1125 = 375px.
+ * ~Half the RISQUE size so the shelf panes are not pushed past the 1080px canvas.
+ */
+html.risque-view-public .runtime-hud-root.runtime-hud-root--public-cardplay-processing-title .hud-title-stack {
+  position: relative;
+  min-height: clamp(22px, 3.25vw, 38px);
+  padding-top: 2px;
+  margin-bottom: 0;
+}
+html.risque-view-public .runtime-hud-root.runtime-hud-root--public-cardplay-processing-title #hud-banner-game-title {
+  position: absolute;
+  left: 375px;
+  top: 0;
+  transform: translateX(-50%);
+  margin: 0;
+  max-width: min(720px, 96vw);
+  white-space: nowrap;
+  text-align: center;
+  font-size: clamp(20.8px, 3vw, 35.2px);
+  letter-spacing: 0.08em;
+  line-height: 1.05;
+}
+
 .risque-view-public .hud-stats-panel {
   margin-top: 0;
 }
@@ -1375,6 +1400,7 @@ body.risque-view-host[data-risque-phase="attack"] .hud-banner-player-phase-line 
   gap: 6px;
   width: 100%;
   min-width: 0;
+  position: relative;
   /* Taller panel: use space below voice/log; fits ~2× card thumbnails + toolbar */
   max-height: min(52vh, 540px);
   overflow-x: hidden;
@@ -7026,6 +7052,81 @@ html.risque-view-public .runtime-hud-root:not(.runtime-hud-root--login) #hud-ban
   background: #0a0a0a;
 }
 
+/* Shelf: flex-fill inside #hud-main-panel; 25px inset from control panel comes from parent padding.
+ * No fill here — #hud-main-panel is already black; avoids an extra “plate” behind the two windows. */
+.risque-public-cardplay-recap-overlay--in-panel:has(.risque-public-cardplay-recap-panel--shelf) {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  padding: 0;
+  box-sizing: border-box;
+  position: relative;
+  left: auto;
+  right: auto;
+  top: auto;
+  bottom: auto;
+  background: transparent;
+}
+
+/* Public recap shelf: HUD column uses flex + bottom:0 inside 1080px #ui-overlay; #hud-main-panel gets
+ * the remaining height below the title, 25px padding, and the overlay flex-fills (body stack hidden). */
+/* Pin HUD column bottom to canvas (1080px #ui-overlay) so recap never extends below the board. */
+.risque-view-public .runtime-hud-root--public-cardplay-recap {
+  bottom: 0;
+  min-height: 0;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* Less air under the title before the first shelf window */
+.risque-view-public .runtime-hud-root--public-cardplay-recap .hud-title-stack {
+  padding-top: 2px;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.risque-view-public .runtime-hud-root--public-cardplay-recap #hud-main-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  max-height: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* 25px from control panel edges; shelf fills the inner box. */
+  padding: 25px !important;
+  box-sizing: border-box;
+  /* #hud-main-panel reuses .attack-control-panel: drop its green chrome + opaque fill — no “plate” behind the windows. */
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  gap: 0;
+}
+
+/* Beat .attack-control-panel { background:#111 } and overlay --in-panel #0a0a0a — column black comes from #ui-overlay. */
+.risque-view-public .runtime-hud-root--public-cardplay-recap #hud-main-panel.attack-control-panel {
+  background: transparent !important;
+}
+.risque-view-public .runtime-hud-root--public-cardplay-recap .risque-public-cardplay-recap-overlay--in-panel {
+  background: transparent !important;
+}
+
+/* Voice/log stack sits under the recap overlay — collapse it so flex height goes to the shelf. */
+.risque-view-public .runtime-hud-root--public-cardplay-recap #risque-main-panel-body {
+  display: none !important;
+}
+
 /* During recap, strip non–card-play chrome on public TV (stats, phase slot, turn line under title) */
 .risque-view-public .runtime-hud-root--public-cardplay-recap #hud-stats-panel,
 .risque-view-public .runtime-hud-root--public-cardplay-recap #risque-phase-content,
@@ -7055,6 +7156,263 @@ html.risque-view-public .runtime-hud-root:not(.runtime-hud-root--login) #hud-ban
   max-width: none;
   max-height: min(92vh, 1100px);
   padding: 16px 14px 20px;
+}
+
+/* Design ref: 840×1080 canvas, two equal stacked panes, neon frames only — no extra black card behind them. */
+.risque-public-cardplay-recap-overlay
+  .risque-public-cardplay-recap-panel.risque-public-cardplay-recap-panel--shelf {
+  --risque-cp-shelf-pane-gap: 12px;
+  width: 100%;
+  max-width: min(840px, 100%);
+  max-height: min(1080px, 100%);
+  min-height: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--risque-cp-shelf-pane-gap);
+  padding: 0;
+  margin: 0 auto;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: hidden;
+  color: #00ff00;
+}
+
+.risque-public-cardplay-recap-overlay.risque-public-cardplay-recap-overlay--in-panel
+  .risque-public-cardplay-recap-panel.risque-public-cardplay-recap-panel--shelf {
+  padding: 0;
+  max-width: min(840px, 100%);
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: hidden;
+  align-self: center;
+}
+
+/* Public TV: two stacked “windows” — 50/50, neon frame only (no outer chrome). */
+.risque-public-cardplay-recap-panel--shelf {
+  min-height: 0;
+}
+
+.risque-public-cp-shelf-upper,
+.risque-public-cp-shelf-lower {
+  flex: 1 1 0;
+  min-height: 0;
+  box-sizing: border-box;
+  /* Interior reads black via control panel; avoids stacking another opaque layer. */
+  background: transparent;
+  /* Thin matrix green — matches the removed outer chrome weight; not the old thick frame. */
+  border: 1px solid #00ff00;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* ~10px shorter per pane vs 50/50 split — frees vertical room under a tighter title row. */
+.risque-public-cardplay-recap-panel.risque-public-cardplay-recap-panel--shelf .risque-public-cp-shelf-upper,
+.risque-public-cardplay-recap-panel.risque-public-cardplay-recap-panel--shelf .risque-public-cp-shelf-lower {
+  max-height: calc((100% - var(--risque-cp-shelf-pane-gap, 12px)) / 2 - 10px);
+}
+
+/* Upper pane: CARD PROCESSING — large single card + recap lines (mirrors control-voice recap narrative). */
+.risque-public-cp-shelf-upper {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: stretch;
+  padding: min(10px, 1.2vh) min(8px, 1vw);
+  overflow: hidden;
+}
+
+.risque-public-cp-shelf-upper-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.risque-public-cp-shelf-upper-processing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: min(8px, 1vh);
+  width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.cardplay-host-aerial-decision {
+  margin: 10px 0 12px;
+  padding: 10px;
+  border: 1px solid #00ff00;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.cardplay-host-aerial-decision-title {
+  color: #00ff00;
+  font-family: Arial, sans-serif;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.cardplay-host-aerial-decision-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.cardplay-host-aerial-select {
+  min-width: 220px;
+  background: #111;
+  color: #fff;
+  border: 1px solid #00ff00;
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+.cardplay-host-auto-income-msg {
+  margin-top: 8px;
+  color: #cbd5e1;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.risque-public-aerial-cancel-wrap {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.risque-public-aerial-cancel-card-wrap {
+  position: relative;
+  width: 160px;
+  height: 220px;
+}
+
+.risque-public-aerial-cancel-card {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.risque-public-aerial-cancel-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 145px;
+  height: 145px;
+  transform: translate(-50%, -50%);
+  border: 8px solid #ff2222;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.risque-public-aerial-cancel-slash {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 185px;
+  height: 8px;
+  transform: translate(-50%, -50%) rotate(-35deg);
+  background: #ff2222;
+  border-radius: 5px;
+  pointer-events: none;
+}
+
+.risque-public-aerial-cancel-text {
+  color: #ff2222;
+  font-family: Arial, sans-serif;
+  font-size: clamp(28px, 3.2vw, 50px);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+
+.risque-public-cp-shelf-lower {
+  display: flex;
+  flex-direction: column;
+  padding: min(10px, 1.2vh) min(8px, 1.2vw) min(12px, 1.4vh);
+  overflow: auto;
+}
+
+.risque-public-cp-shelf-lower .risque-public-cardplay-recap-cards,
+.risque-public-cp-shelf-lower__cards {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 4px 2px 6px;
+  overflow-x: hidden;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+}
+
+.risque-public-cp-shelf-card-slot {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+}
+
+/* Shelf pass: one column width matches host hand thumb (no captions under). */
+.risque-public-cp-shelf-card {
+  display: block;
+  width: clamp(82px, calc((100% - 44px) / 5), 120px);
+  max-width: 120px;
+  height: auto;
+  max-height: min(28vh, 186px);
+  object-fit: contain;
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+
+/* Remove legacy “offset singles” jumble when a book and singles share a row. */
+.risque-public-cp-shelf-lower
+  .risque-public-cp-shelf-lower__cards:has(.risque-public-cp-shelf-lower__book)
+  .risque-public-cp-shelf-lower__singles {
+  margin-top: 0 !important;
+}
+
+/* Lower shelf: books in a thin gold frame; “BOOK” heading stays visible */
+.risque-public-cp-shelf-lower .risque-public-cardplay-recap-book-group {
+  border-width: 1px;
+  border-color: #ca8a04;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 8px 10px;
+}
+
+.risque-public-cp-shelf-lower .risque-public-cardplay-recap-book-heading {
+  color: #fde047;
+  font-size: clamp(14px, 1.6vw, 22px);
+  font-weight: 900;
 }
 
 .risque-public-cardplay-recap-title {
