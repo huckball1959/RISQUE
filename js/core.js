@@ -1323,6 +1323,11 @@ window.gameUtils = {
           gameState &&
           Array.isArray(gameState.risqueBattleLossFlashLabels) &&
           gameState.risqueBattleLossFlashLabels.indexOf(label) !== -1;
+        const replayBattleFlash =
+          gameState &&
+          gameState.risqueReplayPlaybackActive &&
+          Array.isArray(gameState.risqueReplayBattleFlashLabels) &&
+          gameState.risqueReplayBattleFlashLabels.indexOf(label) !== -1;
         /* TV/public: swell beat (larger r) then halo; host private draft: 1.5× while focused. */
         let cardplayScale = 1;
         if (onCardplayPublicHL) {
@@ -1342,6 +1347,9 @@ window.gameUtils = {
         }
         if (battleLossFlash) {
           surface.classList.add('risque-battle-loss-flash');
+        }
+        if (replayBattleFlash) {
+          surface.classList.add('risque-replay-battle-flash');
         }
         const isDeployPhase = gameState && String(gameState.phase) === 'deploy';
         const deployMirrorSelected =
@@ -1544,6 +1552,13 @@ window.gameUtils = {
       if (!svg) {
         console.error('[Core] SVG overlay not found');
         this.showError('SVG overlay not found');
+        return;
+      }
+      if (typeof window !== 'undefined' && window.RISQUE_REPLAY_MACHINE) {
+        const replayRm = svg.querySelector('#stats-group');
+        if (replayRm && replayRm.parentNode) replayRm.parentNode.removeChild(replayRm);
+        const replayHud = document.getElementById('hud-stats-panel');
+        if (replayHud) replayHud.replaceChildren();
         return;
       }
       const hudPanelEarly = document.getElementById('hud-stats-panel');
@@ -1937,7 +1952,19 @@ window.gameUtils = {
       risqueCoreDebugLog('[Core] Canvas not found for scaling');
       return;
     }
-    const scale = Math.min(window.innerHeight / 1080, window.innerWidth / 1920);
+    var availW = window.innerWidth;
+    var availH = window.innerHeight;
+    if (window.RISQUE_REPLAY_MACHINE) {
+      var host = document.querySelector('.replay-stage-host');
+      if (host && typeof host.getBoundingClientRect === 'function') {
+        var r = host.getBoundingClientRect();
+        if (r.width > 32 && r.height > 32) {
+          availW = r.width;
+          availH = r.height;
+        }
+      }
+    }
+    const scale = Math.min(availH / 1080, availW / 1920);
     canvas.style.transform = `translate(-50%, 0) scale(${scale})`;
     canvas.classList.add('visible');
     const stageImage = document.querySelector('.stage-image');
@@ -1947,6 +1974,13 @@ window.gameUtils = {
     if (svgOverlay) svgOverlay.classList.add('visible');
     if (uiOverlay) uiOverlay.classList.add('visible');
     risqueCoreDebugLog('[Core] Canvas scaled:', { scale, innerWidth: window.innerWidth, innerHeight: window.innerHeight });
+    if (window.RISQUE_REPLAY_MACHINE && typeof window.risqueReplayPositionHud === "function") {
+      try {
+        window.risqueReplayPositionHud();
+      } catch (eRp) {
+        /* ignore */
+      }
+    }
   },
   renderAll: function(gameState, changedLabel = null, deployedTroops = {}) {
     this.renderTerritories(changedLabel, gameState, deployedTroops);

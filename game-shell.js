@@ -279,19 +279,13 @@
     typeof window.risqueLoginRecoveryUrl === "function"
       ? window.risqueLoginRecoveryUrl()
       : "game.html?phase=login&loginLegacyNext=game.html%3Fphase%3DplayerSelect%26selectKind%3DfirstCard&loginLoadRedirect=game.html%3Fphase%3Dcardplay%26legacyNext%3Dincome.html";
-  var BOARD_CORNER_TOOLS_VERSION = "13";
+  var BOARD_CORNER_TOOLS_VERSION = "12";
 
   function risqueDoc(name) {
     if (typeof window.risqueResolveDocUrl === "function") {
       return window.risqueResolveDocUrl(name);
     }
-    var fb = {
-      index: "index.html",
-      manual: "docs/manual.html",
-      help: "docs/help.html",
-      game: "game.html",
-      replayMachine: "replay-machine.html"
-    };
+    var fb = { index: "index.html", manual: "docs/manual.html", help: "docs/help.html", game: "game.html" };
     return fb[name] || "";
   }
 
@@ -6895,10 +6889,9 @@
       "</div>" +
       '<div id="risque-board-corner-msg" class="risque-board-corner-msg" aria-live="polite"></div>' +
       "</div>" +
-      '<div class="risque-board-corner-bottom" role="navigation" aria-label="Documentation and replay">' +
+      '<div class="risque-board-corner-bottom" role="navigation" aria-label="Documentation">' +
       '<button type="button" id="risque-board-manual" class="risque-board-op-btn">MANUAL</button>' +
       '<button type="button" id="risque-board-help" class="risque-board-op-btn">HELP</button>' +
-      '<button type="button" id="risque-board-replay-machine" class="risque-board-op-btn" title="Open the Wayback replay machine in a new window (*-replay.json tapes)">REPLAY</button>' +
       '<div id="risque-board-round-save-status" class="risque-board-round-save-status" aria-live="polite">ROUND AUTOSAVE: WAITING</div>' +
       "</div>" +
       '<input type="file" id="risque-board-load-input" accept=".json,.JSON" style="display:none" />';
@@ -6909,7 +6902,7 @@
       wrap.setAttribute("data-risque-corner-v", BOARD_CORNER_TOOLS_VERSION);
       wrap.setAttribute(
         "aria-label",
-        "New game, load game, save game, grace rollback, public board, hide row; manual, help, replay machine, and round autosave status"
+        "New game, load game, save game, grace rollback, public board, hide row; manual, help, and round autosave status"
       );
       wrap.innerHTML = cornerInner;
       canvas.appendChild(wrap);
@@ -6917,7 +6910,7 @@
       wrap.setAttribute("data-risque-corner-v", BOARD_CORNER_TOOLS_VERSION);
       wrap.setAttribute(
         "aria-label",
-        "New game, load game, save game, grace rollback, public board, hide row; manual, help, replay machine, and round autosave status"
+        "New game, load game, save game, grace rollback, public board, hide row; manual, help, and round autosave status"
       );
       wrap.innerHTML = cornerInner;
       boardCornerToolsWired = false;
@@ -7016,18 +7009,6 @@
     if (helpBtn) {
       helpBtn.addEventListener("click", function () {
         window.open(risqueDoc("help"), "_blank", "noopener,noreferrer");
-      });
-    }
-    var replayMachineBtn = document.getElementById("risque-board-replay-machine");
-    if (replayMachineBtn) {
-      replayMachineBtn.addEventListener("click", function () {
-        try {
-          var url = risqueDoc("replayMachine");
-          if (!url) url = "replay-machine.html";
-          window.open(url, "risqueReplayMachine", "noopener,noreferrer");
-        } catch (eRm) {
-          /* ignore */
-        }
       });
     }
     var graceBtn = document.getElementById("risque-board-grace");

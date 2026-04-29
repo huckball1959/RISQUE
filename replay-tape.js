@@ -288,13 +288,6 @@
     pushRaw(gs, { type: "board", segment: "battle", board: snapshotBoard(gs) });
   };
 
-  /** Fortify / reinforcement transfers — kept distinct from battle frames so replay can include final moves. */
-  window.risqueReplayRecordReinforce = function (gs) {
-    if (!shouldRecord(gs)) return;
-    ensureOpeningFrom(gs);
-    pushRaw(gs, { type: "board", segment: "reinforce", board: snapshotBoard(gs) });
-  };
-
   window.risqueReplayRecordElimination = function (gs, conqueror, defeated) {
     if (!shouldRecord(gs)) return;
     ensureTape(gs);
